@@ -11,6 +11,11 @@ try:
     PYGUI_OK = True
 except ImportError:
     PYGUI_OK = False
+try:
+    from playwright.sync_api import sync_playwright
+    PLAYWRIGHT_OK = True
+except ImportError:
+    PLAYWRIGHT_OK = False
 
 CAMPS_FILE = Path(__file__).parent / 'campanhas.json'
 
@@ -73,6 +78,8 @@ _orc_det_cache = {}
 
 _wa_lock = threading.Lock()
 _wa_worker_thread = None
+_wa_monitor_thread = None
+_wa_monitor_stop = False
 _wa_session = {
     "status": "disconnected",   # disconnected | qr_required | connected | degraded
     "updated_at": None,
@@ -84,6 +91,12 @@ _wa_queue = {
     "last_error": "",
     "updated_at": None,
     "items": [],
+}
+_wa_monitor = {
+    "running": False,
+    "playwright_ok": PLAYWRIGHT_OK,
+    "updated_at": None,
+    "last_error": "",
 }
 
 def _wa_snapshot_unlocked():
@@ -273,6 +286,115 @@ def _wa_start_worker_if_needed():
         return
     _wa_worker_thread = threading.Thread(target=_wa_worker_loop, daemon=True)
     _wa_worker_thread.start()
+
+def _wa_monitor_snapshot_unlocked():
+    return {
+        "running": bool(_wa_monitor.get("running")),
+        "playwright_ok": bool(_wa_monitor.get("playwright_ok")),
+        "updated_at": _wa_monitor.get("updated_at"),
+        "last_error": _wa_monitor.get("last_error") or "",
+    }
+
+def _wa_monitor_loop():
+    global _wa_monitor_stop
+    profile_dir = str(BASE / ".wa_session")
+    while True:
+        with _wa_lock:
+            if _wa_monitor_stop:
+                _wa_monitor["running"] = False
+                _wa_monitor["updated_at"] = _now_iso()
+                _save_wa_state_unlocked()
+                break
+
+        if not PLAYWRIGHT_OK:
+            with _wa_lock:
+                _wa_monitor["running"] = False
+                _wa_monitor["last_error"] = "playwright não instalado"
+                _wa_monitor["updated_at"] = _now_iso()
+                _wa_session["status"] = "degraded"
+                _wa_session["note"] = "Instale playwright para monitor automático de sessão"
+                _wa_session["updated_at"] = _now_iso()
+                _save_wa_state_unlocked()
+            break
+
+        try:
+            with sync_playwright() as p:
+                context = p.chromium.launch_persistent_context(
+                    user_data_dir=profile_dir,
+                    headless=False,
+                    viewport={"width": 1366, "height": 768},
+                )
+                page = context.pages[0] if context.pages else context.new_page()
+                page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
+
+                while True:
+                    with _wa_lock:
+                        if _wa_monitor_stop:
+                            break
+                    page.wait_for_timeout(1200)
+                    has_chat = False
+                    has_qr = False
+                    try:
+                        has_chat = page.locator("div[contenteditable='true'][data-tab]").count() > 0
+                    except Exception:
+                        has_chat = False
+                    try:
+                        has_qr = page.locator("canvas[aria-label='Scan me!']").count() > 0 or page.locator("canvas").count() > 0
+                    except Exception:
+                        has_qr = False
+
+                    with _wa_lock:
+                        _wa_monitor["running"] = True
+                        _wa_monitor["playwright_ok"] = True
+                        _wa_monitor["last_error"] = ""
+                        _wa_monitor["updated_at"] = _now_iso()
+                        if has_chat:
+                            _wa_session["status"] = "connected"
+                            _wa_session["note"] = "WhatsApp Web conectado"
+                        elif has_qr:
+                            _wa_session["status"] = "qr_required"
+                            _wa_session["note"] = "Aguardando leitura do QR code"
+                        else:
+                            _wa_session["status"] = "degraded"
+                            _wa_session["note"] = "Não foi possível confirmar o estado do WhatsApp Web"
+                        _wa_session["updated_at"] = _now_iso()
+                        _save_wa_state_unlocked()
+
+                context.close()
+        except Exception as e:
+            with _wa_lock:
+                _wa_monitor["running"] = False
+                _wa_monitor["last_error"] = str(e)
+                _wa_monitor["updated_at"] = _now_iso()
+                _wa_session["status"] = "degraded"
+                _wa_session["note"] = f"Erro no monitor WA: {e}"
+                _wa_session["updated_at"] = _now_iso()
+                _save_wa_state_unlocked()
+            time.sleep(2.0)
+            continue
+
+def _wa_start_monitor_if_needed():
+    global _wa_monitor_thread, _wa_monitor_stop
+    with _wa_lock:
+        if _wa_monitor.get("running"):
+            return
+        _wa_monitor_stop = False
+        _wa_monitor["running"] = True
+        _wa_monitor["updated_at"] = _now_iso()
+        _wa_monitor["last_error"] = ""
+        _save_wa_state_unlocked()
+    if _wa_monitor_thread and _wa_monitor_thread.is_alive():
+        return
+    _wa_monitor_thread = threading.Thread(target=_wa_monitor_loop, daemon=True)
+    _wa_monitor_thread.start()
+
+def _wa_stop_monitor():
+    global _wa_monitor_stop
+    with _wa_lock:
+        _wa_monitor_stop = True
+        _wa_monitor["running"] = False
+        _wa_monitor["updated_at"] = _now_iso()
+        _save_wa_state_unlocked()
 
 def _wa_add_items(body):
     raw_items = body.get("items")
@@ -622,6 +744,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "ok": True,
                     "session": dict(_wa_session),
                     "queue": _wa_snapshot_unlocked(),
+                    "monitor": _wa_monitor_snapshot_unlocked(),
                 })
         elif p == "/api/wa/queue/status":
             with _wa_lock:
@@ -964,6 +1087,18 @@ class Handler(http.server.BaseHTTPRequestHandler):
 
             with _wa_lock:
                 self.send_json({"ok": True, "queue": _wa_snapshot_unlocked()})
+
+        elif p == "/api/wa/monitor/control":
+            body = self.read_body()
+            action = str(body.get("action") or "").strip().lower()
+            if action == "start":
+                _wa_start_monitor_if_needed()
+            elif action == "stop":
+                _wa_stop_monitor()
+            else:
+                self.send_json({"ok": False, "msg": "Ação inválida"}); return
+            with _wa_lock:
+                self.send_json({"ok": True, "monitor": _wa_monitor_snapshot_unlocked(), "session": dict(_wa_session)})
 
         elif p == "/api/campanhas_limpar":
             body = self.read_body()
