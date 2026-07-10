@@ -2,7 +2,7 @@
 Servidor local ACA v2 — com config, token, enviados e Excel sync
 Rode: py servidor.py | Acesse: http://localhost:8765
 """
-import http.server, json, os, subprocess, sys, threading, time, urllib.request, urllib.parse, webbrowser
+import http.server, json, os, random, subprocess, sys, threading, time, urllib.request, urllib.parse, webbrowser
 from pathlib import Path
 from datetime import date, datetime
 try:
@@ -18,6 +18,7 @@ BASE   = Path(__file__).parent
 PORT   = 8765
 CONFIG_FILE = BASE / "config.json"
 EXCEL_FILE  = BASE / "aca.xlsx"
+WA_QUEUE_FILE = BASE / "wa_queue.json"
 
 USERS_FILE = BASE / "aca.xlsx"
 ORC_FILE = BASE / "orcamentos_abertos.json"
@@ -31,6 +32,9 @@ def _mtime_iso(path: Path):
     except Exception:
         return None
     return None
+
+def _now_iso():
+    return datetime.now().isoformat()
 
 # ─── Config ──────────────────────────────────────────────────────────────────
 def load_config():
@@ -66,6 +70,240 @@ def masked_token(tok):
     return tok[:4] + "·" * (len(tok) - 8) + tok[-4:]
 
 _orc_det_cache = {}
+
+_wa_lock = threading.Lock()
+_wa_worker_thread = None
+_wa_session = {
+    "status": "disconnected",   # disconnected | qr_required | connected | degraded
+    "updated_at": None,
+    "note": "Sessão não iniciada",
+}
+_wa_queue = {
+    "running": False,
+    "paused": False,
+    "last_error": "",
+    "updated_at": None,
+    "items": [],
+}
+
+def _wa_snapshot_unlocked():
+    items = _wa_queue.get("items", [])
+    def _count(st):
+        return sum(1 for it in items if it.get("status") == st)
+    return {
+        "running": bool(_wa_queue.get("running")),
+        "paused": bool(_wa_queue.get("paused")),
+        "last_error": _wa_queue.get("last_error") or "",
+        "updated_at": _wa_queue.get("updated_at"),
+        "total": len(items),
+        "pending": _count("pending"),
+        "processing": _count("processing"),
+        "sent": _count("sent"),
+        "failed": _count("failed"),
+    }
+
+def _save_wa_state_unlocked():
+    payload = {
+        "session": _wa_session,
+        "queue": {
+            "running": bool(_wa_queue.get("running")),
+            "paused": bool(_wa_queue.get("paused")),
+            "last_error": _wa_queue.get("last_error") or "",
+            "updated_at": _wa_queue.get("updated_at"),
+            "items": _wa_queue.get("items", []),
+        }
+    }
+    WA_QUEUE_FILE.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _load_wa_state():
+    if not WA_QUEUE_FILE.exists():
+        return
+    try:
+        payload = json.loads(WA_QUEUE_FILE.read_text(encoding="utf-8"))
+        with _wa_lock:
+            s = payload.get("session") or {}
+            q = payload.get("queue") or {}
+            _wa_session["status"] = s.get("status") or _wa_session["status"]
+            _wa_session["updated_at"] = s.get("updated_at")
+            _wa_session["note"] = s.get("note") or _wa_session["note"]
+            _wa_queue["running"] = False
+            _wa_queue["paused"] = False
+            _wa_queue["last_error"] = q.get("last_error") or ""
+            _wa_queue["updated_at"] = q.get("updated_at")
+            _wa_queue["items"] = q.get("items") if isinstance(q.get("items"), list) else []
+            _save_wa_state_unlocked()
+    except Exception:
+        return
+
+def _normalize_phone(raw):
+    d = "".join(ch for ch in str(raw or "") if ch.isdigit())
+    if not d:
+        return ""
+    if d.startswith("55"):
+        return d
+    if len(d) in (10, 11):
+        return "55" + d
+    return d
+
+def _build_wpp_url(phone, text):
+    num = _normalize_phone(phone)
+    msg = urllib.parse.quote(str(text or ""))
+    return f"https://web.whatsapp.com/send?phone={num}&text={msg}"
+
+def _send_wpp_item(item, cfg):
+    if not PYGUI_OK:
+        raise RuntimeError("pyautogui não instalado")
+
+    wa_cfg = cfg.get("wa_coords", {}) or {}
+    x = int(wa_cfg.get("x", 0) or 0)
+    y = int(wa_cfg.get("y", 0) or 0)
+    if not x or not y:
+        raise RuntimeError("Coordenadas do botão Enviar não configuradas")
+
+    delay_open = float(cfg.get("wa_delay_open_s", 1.5) or 1.5)
+    delay_before_send = float(cfg.get("wa_delay_before_send_s", 2.0) or 2.0)
+    delay_after_send = float(cfg.get("wa_delay_after_send_s", 1.0) or 1.0)
+    intervalo_base = float(cfg.get("intervalo_envio_s", 4) or 4)
+    close_tab = bool(cfg.get("fechar_aba_apos_envio", True))
+
+    url = str(item.get("url") or "").strip()
+    if not url:
+        phone = item.get("celular") or item.get("phone") or ""
+        if not _normalize_phone(phone):
+            raise RuntimeError("Celular inválido para envio")
+        url = _build_wpp_url(phone, item.get("mensagem") or item.get("message") or "")
+
+    opened = webbrowser.open(url, new=1, autoraise=True)
+    if not opened:
+        try:
+            os.startfile(url)
+            opened = True
+        except Exception:
+            opened = False
+    if not opened:
+        raise RuntimeError("Não foi possível abrir o navegador padrão")
+
+    time.sleep(max(0.6, delay_open))
+    time.sleep(max(0.8, delay_before_send))
+    pyautogui.moveTo(x, y, duration=0.12)
+    pyautogui.click(x, y)
+    time.sleep(0.3)
+    pyautogui.press("enter")
+    time.sleep(max(0.4, delay_after_send))
+    if close_tab:
+        pyautogui.hotkey("ctrl", "w")
+
+    jitter = random.uniform(-0.5, 0.8)
+    time.sleep(max(0.4, intervalo_base + jitter))
+
+def _wa_pick_next_unlocked():
+    for it in _wa_queue.get("items", []):
+        if it.get("status") == "pending":
+            return it
+    return None
+
+def _wa_worker_loop():
+    while True:
+        with _wa_lock:
+            if not _wa_queue.get("running"):
+                break
+            if _wa_queue.get("paused"):
+                _wa_queue["updated_at"] = _now_iso()
+                _save_wa_state_unlocked()
+                item = None
+            else:
+                item = _wa_pick_next_unlocked()
+                if not item:
+                    _wa_queue["running"] = False
+                    _wa_queue["updated_at"] = _now_iso()
+                    _save_wa_state_unlocked()
+                    break
+                item["status"] = "processing"
+                item["started_at"] = _now_iso()
+                _wa_queue["updated_at"] = _now_iso()
+                _save_wa_state_unlocked()
+
+        if not item:
+            time.sleep(0.4)
+            continue
+
+        try:
+            cfg = load_config()
+            with _wa_lock:
+                sess = _wa_session.get("status")
+            if sess != "connected":
+                raise RuntimeError("Sessão WA não está conectada")
+
+            _send_wpp_item(item, cfg)
+
+            patient_id = str(item.get("patient_id") or item.get("id_paciente") or "").strip()
+            if patient_id:
+                cfg = load_config()
+                if patient_id not in cfg.get("enviados", []):
+                    cfg.setdefault("enviados", []).append(patient_id)
+                    save_config(cfg)
+                try:
+                    marcar_enviado_excel(patient_id)
+                except Exception:
+                    pass
+
+            with _wa_lock:
+                item["status"] = "sent"
+                item["finished_at"] = _now_iso()
+                item["error"] = ""
+                _wa_queue["updated_at"] = _now_iso()
+                _wa_queue["last_error"] = ""
+                _save_wa_state_unlocked()
+        except Exception as e:
+            with _wa_lock:
+                item["status"] = "failed"
+                item["finished_at"] = _now_iso()
+                item["error"] = str(e)
+                _wa_queue["updated_at"] = _now_iso()
+                _wa_queue["last_error"] = str(e)
+                _save_wa_state_unlocked()
+
+def _wa_start_worker_if_needed():
+    global _wa_worker_thread
+    with _wa_lock:
+        should_start = bool(_wa_queue.get("running"))
+    if not should_start:
+        return
+    if _wa_worker_thread and _wa_worker_thread.is_alive():
+        return
+    _wa_worker_thread = threading.Thread(target=_wa_worker_loop, daemon=True)
+    _wa_worker_thread.start()
+
+def _wa_add_items(body):
+    raw_items = body.get("items")
+    if not isinstance(raw_items, list):
+        raw_items = [body]
+
+    added = 0
+    with _wa_lock:
+        for r in raw_items:
+            if not isinstance(r, dict):
+                continue
+            item = {
+                "id": str(r.get("id") or f"wa-{int(time.time()*1000)}-{random.randint(100,999)}"),
+                "patient_id": str(r.get("patient_id") or r.get("id_paciente") or "").strip(),
+                "nome": str(r.get("nome") or "").strip(),
+                "celular": str(r.get("celular") or r.get("phone") or "").strip(),
+                "mensagem": str(r.get("mensagem") or r.get("message") or "").strip(),
+                "url": str(r.get("url") or "").strip(),
+                "status": "pending",
+                "created_at": _now_iso(),
+                "started_at": None,
+                "finished_at": None,
+                "error": "",
+            }
+            if not item["url"] and not _normalize_phone(item["celular"]):
+                continue
+            _wa_queue["items"].append(item)
+            added += 1
+        _wa_queue["updated_at"] = _now_iso()
+        _save_wa_state_unlocked()
+    return added
 
 def sd_api_get(url: str, token: str, timeout=20):
     req = urllib.request.Request(url, headers={
@@ -378,6 +616,21 @@ class Handler(http.server.BaseHTTPRequestHandler):
                     "local": _mtime_iso(DASH_FILE),
                 }
             })
+        elif p == "/api/wa/status":
+            with _wa_lock:
+                self.send_json({
+                    "ok": True,
+                    "session": dict(_wa_session),
+                    "queue": _wa_snapshot_unlocked(),
+                })
+        elif p == "/api/wa/queue/status":
+            with _wa_lock:
+                items = list(_wa_queue.get("items", []))
+                self.send_json({
+                    "ok": True,
+                    "queue": _wa_snapshot_unlocked(),
+                    "items": items[-200:],
+                })
         elif p == "/api/orcamento_tratamentos":
             pid = str((qs.get("pid") or [""])[0]).strip()
             data_ref = str((qs.get("data") or [""])[0]).strip()
@@ -644,6 +897,74 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"ok": False, "msg": str(e)})
 
+        elif p == "/api/wa/session":
+            body = self.read_body()
+            status = str(body.get("status") or "").strip().lower()
+            note = str(body.get("note") or "").strip()
+            allowed = {"disconnected", "qr_required", "connected", "degraded"}
+            if status not in allowed:
+                self.send_json({"ok": False, "msg": "Status inválido"}); return
+            with _wa_lock:
+                _wa_session["status"] = status
+                _wa_session["updated_at"] = _now_iso()
+                _wa_session["note"] = note or _wa_session.get("note") or ""
+                _save_wa_state_unlocked()
+            self.send_json({"ok": True, "session": dict(_wa_session)})
+
+        elif p == "/api/wa/queue/add":
+            body = self.read_body()
+            added = _wa_add_items(body)
+            auto_start = bool(body.get("auto_start", False))
+            if auto_start and added > 0:
+                with _wa_lock:
+                    _wa_queue["running"] = True
+                    _wa_queue["paused"] = False
+                    _wa_queue["updated_at"] = _now_iso()
+                    _save_wa_state_unlocked()
+                _wa_start_worker_if_needed()
+            with _wa_lock:
+                self.send_json({"ok": True, "added": added, "queue": _wa_snapshot_unlocked()})
+
+        elif p == "/api/wa/queue/control":
+            body = self.read_body()
+            action = str(body.get("action") or "").strip().lower()
+            with _wa_lock:
+                if action == "start":
+                    _wa_queue["running"] = True
+                    _wa_queue["paused"] = False
+                elif action == "pause":
+                    _wa_queue["paused"] = True
+                elif action == "resume":
+                    _wa_queue["running"] = True
+                    _wa_queue["paused"] = False
+                elif action == "stop":
+                    _wa_queue["running"] = False
+                    _wa_queue["paused"] = False
+                elif action == "clear":
+                    _wa_queue["items"] = [it for it in _wa_queue.get("items", []) if it.get("status") == "processing"]
+                    _wa_queue["running"] = False
+                    _wa_queue["paused"] = False
+                elif action == "retry_failed":
+                    for it in _wa_queue.get("items", []):
+                        if it.get("status") == "failed":
+                            it["status"] = "pending"
+                            it["error"] = ""
+                            it["started_at"] = None
+                            it["finished_at"] = None
+                    _wa_queue["running"] = True
+                    _wa_queue["paused"] = False
+                else:
+                    self.send_json({"ok": False, "msg": "Ação inválida"}); return
+
+                _wa_queue["updated_at"] = _now_iso()
+                _save_wa_state_unlocked()
+
+            if action in {"start", "resume", "retry_failed"}:
+                _wa_start_worker_if_needed()
+
+            with _wa_lock:
+                self.send_json({"ok": True, "queue": _wa_snapshot_unlocked()})
+
         elif p == "/api/campanhas_limpar":
             body = self.read_body()
             apenas_concluidas = bool(body.get("apenas_concluidas", True))
@@ -709,6 +1030,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
 # ─── Main ─────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     import webbrowser
+    _load_wa_state()
+    _wa_start_worker_if_needed()
     server = http.server.HTTPServer(("localhost", PORT), Handler)
     url = f"http://localhost:{PORT}"
     print(f"")
