@@ -321,6 +321,19 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
       </div>
     </div>
 
+    <div id="wa-queue-panel" style="margin-top:12px;background:var(--s2);border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
+        <div id="wa-session-label" style="font-size:12px;color:var(--muted)">Sessão WA: desconhecida</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('qr_required')">QR</button>
+          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('connected')">Conectado</button>
+          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('disconnected')">Desconectado</button>
+          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="refreshWaRuntime()">Atualizar</button>
+        </div>
+      </div>
+      <div id="wa-queue-label" style="font-size:11px;color:var(--muted);margin-top:6px">Fila: 0 pendentes | 0 enviadas | 0 falhas</div>
+    </div>
+
     <!-- Progresso de Envio da Campanha Ativa -->
     <div id="send-progress-wrap" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px">
       <div class="send-status">
@@ -841,6 +854,7 @@ async function bootDashboard(){
   renderVisaoGeral(); renderRadar(); renderOrcamentos(); initConfig();
   updateCampCardUI();
   refreshAutomationStatus(false);
+  startWaPoll();
 }
 
 function getLocalKpiCfg(){
@@ -877,6 +891,117 @@ let _campSel = new Set();
 let _autoStatus = {checked:false, ready:false, msg:'Verificando automação...'};
 let _campBases = [];
 let _campLoadedMeta = null;
+let _waRuntime = {
+  session: {status:'disconnected', note:'', updated_at:null},
+  queue: {running:false, paused:false, total:0, pending:0, processing:0, sent:0, failed:0}
+};
+let _waPoll = null;
+
+function startWaPoll(){
+  if(_waPoll) return;
+  refreshWaRuntime();
+  _waPoll = setInterval(refreshWaRuntime, 2500);
+}
+
+function updateWaPanel(){
+  const sess = _waRuntime.session || {};
+  const q = _waRuntime.queue || {};
+  const sessLbl = document.getElementById('wa-session-label');
+  const qLbl = document.getElementById('wa-queue-label');
+  const sessMap = {
+    disconnected:'desconectada',
+    qr_required:'aguardando QR',
+    connected:'conectada',
+    degraded:'instável'
+  };
+  const sTxt = sessMap[sess.status] || String(sess.status||'desconhecida');
+  if(sessLbl) sessLbl.textContent = `Sessão WA: ${sTxt}${sess.note ? ' · '+sess.note : ''}`;
+  if(qLbl) qLbl.textContent = `Fila: ${Number(q.pending||0)} pendentes | ${Number(q.processing||0)} processando | ${Number(q.sent||0)} enviadas | ${Number(q.failed||0)} falhas`;
+}
+
+function _syncSentFromQueueItems(items){
+  if(!Array.isArray(items) || !items.length) return;
+  const byPid = new Map();
+  _sendQueue.forEach(r=>{
+    const pid = String(r?.id||'').trim();
+    if(pid) byPid.set(pid, r);
+  });
+  items.forEach(it=>{
+    if(it?.status !== 'sent') return;
+    const pid = String(it?.patient_id||'').trim();
+    const row = byPid.get(pid);
+    if(!row) return;
+    _enviados.add(String(getRadarKey(row)));
+  });
+  localStorage.setItem('aca_enviados', JSON.stringify([..._enviados]));
+}
+
+async function refreshWaRuntime(){
+  try{
+    const [rs, rq] = await Promise.all([
+      fetch(SERVER+'/api/wa/status',{signal:AbortSignal.timeout(1800)}),
+      fetch(SERVER+'/api/wa/queue/status',{signal:AbortSignal.timeout(1800)})
+    ]);
+    if(!rs.ok || !rq.ok) throw new Error('offline');
+    const ds = await rs.json();
+    const dq = await rq.json();
+    _waRuntime.session = ds.session || _waRuntime.session;
+    _waRuntime.queue = dq.queue || _waRuntime.queue;
+    _syncSentFromQueueItems(dq.items||[]);
+
+    if(_campStatus==='confirmado'){
+      _sendIdx = Number(_waRuntime.queue.sent||0);
+      const total = _sendQueue.length || _campSel.size;
+      if(total>0){
+        const done = Math.min(total, Number(_waRuntime.queue.sent||0) + Number(_waRuntime.queue.failed||0));
+        document.getElementById('sp-count').textContent = `${done} de ${total}`;
+        document.getElementById('sp-bar').style.width = `${Math.round((done/total)*100)}%`;
+        if(_waRuntime.queue.running && !_waRuntime.queue.paused){
+          document.getElementById('sp-curr').textContent = 'Enviando pela fila...';
+        }else if(_waRuntime.queue.paused){
+          document.getElementById('sp-curr').textContent = '⏸ Pausado — clique ▶ para retomar';
+        }
+      }
+      if(total>0 && Number(_waRuntime.queue.pending||0)===0 && Number(_waRuntime.queue.processing||0)===0 && !_waRuntime.queue.running){
+        _playing = false;
+        const spinnerEl=document.getElementById('sp-spinner');
+        if(spinnerEl){ spinnerEl.className='spinner done'; spinnerEl.textContent='✓'; }
+        document.getElementById('sp-curr').textContent = Number(_waRuntime.queue.failed||0)>0
+          ? `⚠ Concluído com falhas (${_waRuntime.queue.failed})`
+          : '✅ Concluído!';
+        document.getElementById('sp-count').textContent = `${Math.min(_sendIdx,total)} de ${total}`;
+        document.getElementById('sp-bar').style.width='100%';
+      }
+    }
+  }catch{}
+
+  updateWaPanel();
+  if(_campStatus==='confirmado') updateCampCardUI();
+  const sentEl=document.getElementById('r-sent');
+  if(sentEl) sentEl.textContent=_enviados.size.toLocaleString('pt-BR');
+}
+
+async function setWaSession(status){
+  try{
+    await fetch(SERVER+'/api/wa/session',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({status})
+    });
+  }catch{}
+  refreshWaRuntime();
+}
+
+async function controlWaQueue(action){
+  try{
+    await fetch(SERVER+'/api/wa/queue/control',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({action})
+    });
+  }catch{}
+  refreshWaRuntime();
+}
 
 async function refreshAutomationStatus(showAlert=false){
   try{
@@ -1014,14 +1139,16 @@ function updateCampCardUI(){
   }
   else if(_campStatus === 'confirmado') {
     title.textContent = `🎯 ${_campNome}`;
-    desc.textContent = `Fila de disparos confirmada. Clique no botão ao lado para iniciar.`;
+    desc.textContent = `Fila confirmada. Sessão WA precisa estar conectada para iniciar os envios.`;
     acts.innerHTML = `
       <button class="btn btn-red" onclick="cancelarCampanhaAtiva()" id="btn-camp-cancel">🗑️ Cancelar</button>
       <button class="btn btn-play" id="btn-play" onclick="toggleSend()">▶ Iniciar Envio</button>
+      <button class="btn btn-ghost" onclick="controlWaQueue('retry_failed')" id="btn-retry-fail">♻️ Reenviar Falhas</button>
       <button class="btn btn-ghost" onclick="arquivarCampanha()" id="btn-camp-archive" style="display:none">🗃️ Arquivar Campanha</button>
     `;
     counterBox.style.display = 'flex';
-    counterNum.textContent = `${_sendIdx}/${_campSel.size}`;
+    const sentCount = Number(_waRuntime.queue?.sent || _sendIdx || 0);
+    counterNum.textContent = `${sentCount}/${_campSel.size}`;
     counterLbl.textContent = 'Enviados';
   }
 }
@@ -1034,6 +1161,7 @@ function confirmarSelecaoCampanha(){
   }).filter(Boolean);
   _sendIdx = 0;
   _playing = false;
+  controlWaQueue('clear');
   updateCampCardUI();
   filterRadar();
   updatePlayBtn();
@@ -1041,6 +1169,7 @@ function confirmarSelecaoCampanha(){
 
 function cancelarCampanhaAtiva(){
   if(!confirm('Deseja cancelar esta campanha em andamento? Toda a seleção atual será perdida.')) return;
+  controlWaQueue('stop');
   _campStatus = 'inativo';
   _campNome = '';
   _campSel.clear();
@@ -1341,89 +1470,79 @@ function renderRadarTable(){
 let _playing=false, _sendIdx=0, _sendQueue=[];
 
 function toggleSend(){
-  if(!_playing) startSend(); else pauseSend();
+  if(_playing){
+    pauseSend();
+    return;
+  }
+  const q = _waRuntime.queue || {};
+  const hasInFlight = Number(q.pending||0)>0 || Number(q.processing||0)>0;
+  if(hasInFlight || q.paused){
+    _playing = true;
+    updatePlayBtn();
+    document.getElementById('send-progress-wrap').style.display='';
+    controlWaQueue('resume');
+    refreshWaRuntime();
+    return;
+  }
+  startSend();
 }
 
 async function startSend(){
   if(_campStatus !== 'confirmado') return;
+  if((_waRuntime.session?.status||'')!=='connected'){
+    document.getElementById('send-progress-wrap').style.display='';
+    document.getElementById('sp-curr').textContent='⚠ Sessão WA não conectada. Marque como Conectado após ler o QR.';
+    return;
+  }
+
+  if(!_sendQueue.length){
+    _sendQueue = [..._campSel].map(key => {
+      return rFilt.find(r => getRadarKey(r) === key) || rLista.find(r => getRadarKey(r) === key);
+    }).filter(Boolean);
+  }
+
+  const items = _sendQueue.map((r,idx)=>({
+    id: `${String(r.id||getRadarKey(r))}-${idx}-${Date.now()}`,
+    patient_id: String(r.id||'').trim(),
+    nome: r.nome||'',
+    celular: r.celular||'',
+    mensagem: buildMsg(r.nome||'')
+  }));
+
+  try{
+    await fetch(SERVER+'/api/wa/queue/control',{
+      method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'clear'})
+    });
+    const ra = await fetch(SERVER+'/api/wa/queue/add',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({items,auto_start:true})
+    });
+    const da = await ra.json();
+    if(!ra.ok || !da.ok) throw new Error(da?.msg||'Falha ao iniciar fila');
+  }catch(e){
+    document.getElementById('send-progress-wrap').style.display='';
+    document.getElementById('sp-curr').textContent=`❌ Falha ao iniciar fila: ${e?.message||'erro'}`;
+    return;
+  }
+
   _playing=true;
   updatePlayBtn();
   document.getElementById('send-progress-wrap').style.display='';
   const spinnerEl=document.getElementById('sp-spinner');
   if(spinnerEl){ spinnerEl.className='spinner'; spinnerEl.textContent=''; }
-
-  const cfg=CONFIG, delay=parseInt(document.getElementById('cfg-interval')?.value||4);
-  const closeDelay=parseFloat(document.getElementById('cfg-close-delay')?.value||cfg.delay_fechamento_s||4);
-  const closeAuto=(document.getElementById('cfg-close-auto')?.checked ?? cfg.fechar_aba_apos_envio ?? true);
-  const x=parseInt(document.getElementById('cfg-wx')?.value||cfg.wa_coords?.x||0);
-  const y=parseInt(document.getElementById('cfg-wy')?.value||cfg.wa_coords?.y||0);
-
-  while(_sendIdx<_sendQueue.length && _playing){
-    const r=_sendQueue[_sendIdx];
-    
-    // UI feedback
-    document.getElementById('sp-curr').textContent='Abrindo WhatsApp...';
-    document.getElementById('sp-count').textContent=`${_sendIdx+1} de ${_sendQueue.length}`;
-    document.getElementById('sp-name').textContent=r.nome||'';
-    document.getElementById('sp-bar').style.width=(_sendIdx/_sendQueue.length*100)+'%';
-    updateCampCardUI();
-
-    const d=(r.celular||'').replace(/\D/g,'');
-    if(d){
-      const num=d.length===11?'55'+d:d;
-      const url=`https://web.whatsapp.com/send?phone=${num}&text=${encodeURIComponent(buildMsg(r.nome||''))}&app_absent=0`;
-
-      // Fluxo Web-only: backend abre a aba, aguarda carregar, clica enviar e fecha a aba.
-      try{
-        const rw = await fetch(SERVER+'/api/enviar_wpp_web',{
-          method:'POST',
-          headers:{'Content-Type':'application/json'},
-          body:JSON.stringify({
-            url,
-            x,
-            y,
-            delay_open: 2,
-            delay_before_send: delay,
-            delay_before_close: closeDelay,
-            delay_after_send: 1,
-            close_tab: closeAuto
-          })
-        });
-        const dw = await rw.json();
-        if(!dw.ok) throw new Error(dw.msg||'Falha no envio web');
-      }catch(e){
-        _playing=false;
-        updatePlayBtn();
-        document.getElementById('sp-curr').textContent=`❌ Falha no envio web: ${e?.message||'verifique navegador/coordenadas'}`;
-        break;
-      }
-    }
-    
-    // Marca enviado
-    const rowKey = getRadarKey(r);
-    const rowDomKey = getRadarDomKey(r);
-    addEnviado(rowKey, r.id);
-    const sentEl=document.getElementById('sent-'+rowDomKey);
-    if(sentEl) sentEl.innerHTML='<span class="sent-yes">✓</span>';
-    _sendIdx++;
-  }
-
-  if(_sendIdx>=_sendQueue.length){
-    _playing=false;
-    if(spinnerEl){ spinnerEl.className='spinner done'; spinnerEl.textContent='✓'; }
-    document.getElementById('sp-curr').textContent='✅ Concluído!';
-    document.getElementById('sp-bar').style.width='100%';
-    document.getElementById('r-sent').textContent=_enviados.size.toLocaleString('pt-BR');
-
-    // Ao finalizar, arquiva automaticamente para aparecer no histórico.
-    await arquivarCampanha({silent:true});
-  }
+  document.getElementById('sp-curr').textContent='▶ Fila iniciada no backend';
+  document.getElementById('sp-count').textContent=`0 de ${_sendQueue.length}`;
+  document.getElementById('sp-name').textContent='';
+  document.getElementById('sp-bar').style.width='0%';
   updateCampCardUI();
   updatePlayBtn();
+  refreshWaRuntime();
 }
 
 function pauseSend(){
   _playing=false;
+  controlWaQueue('pause');
   updatePlayBtn();
   const spinnerEl=document.getElementById('sp-spinner');
   if(spinnerEl){ spinnerEl.className='spinner'; spinnerEl.textContent=''; }
