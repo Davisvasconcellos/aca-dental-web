@@ -52,12 +52,18 @@ def load_config():
         cfg.setdefault("dias_exclusao_radar_limpeza", cfg.get("dias_limpeza_kpi", 90))
         cfg.setdefault("delay_fechamento_s", 4)
         cfg.setdefault("fechar_aba_apos_envio", True)
+        cfg.setdefault("wa_delay_open_s", 2.5)
+        cfg.setdefault("wa_delay_before_send_s", 5.0)
+        cfg.setdefault("wa_delay_after_send_s", 1.5)
+        cfg.setdefault("wa_queue_close_tab", False)
         return cfg
     return {"token": "", "mensagem_template": "", "wa_coords": {"x":0,"y":0},
             "intervalo_envio_s": 3, "enviados": [], "valor_limpeza": 200, "valor_consulta": 250,
             "dias_limpeza_kpi": 90, "dias_consulta_kpi": 60,
             "dias_exclusao_radar_limpeza": 90,
-            "delay_fechamento_s": 4, "fechar_aba_apos_envio": True}
+            "delay_fechamento_s": 4, "fechar_aba_apos_envio": True,
+            "wa_delay_open_s": 2.5, "wa_delay_before_send_s": 5.0,
+            "wa_delay_after_send_s": 1.5, "wa_queue_close_tab": False}
 
 def load_camps():
     if CAMPS_FILE.exists():
@@ -80,6 +86,7 @@ _wa_lock = threading.Lock()
 _wa_worker_thread = None
 _wa_monitor_thread = None
 _wa_monitor_stop = False
+_wa_monitor_open_request = False
 _wa_session = {
     "status": "disconnected",   # disconnected | qr_required | connected | degraded
     "updated_at": None,
@@ -173,11 +180,12 @@ def _send_wpp_item(item, cfg):
     if not x or not y:
         raise RuntimeError("Coordenadas do botão Enviar não configuradas")
 
-    delay_open = float(cfg.get("wa_delay_open_s", 1.5) or 1.5)
-    delay_before_send = float(cfg.get("wa_delay_before_send_s", 2.0) or 2.0)
-    delay_after_send = float(cfg.get("wa_delay_after_send_s", 1.0) or 1.0)
+    delay_open = float(cfg.get("wa_delay_open_s", 2.5) or 2.5)
+    delay_before_send = float(cfg.get("wa_delay_before_send_s", 5.0) or 5.0)
+    delay_after_send = float(cfg.get("wa_delay_after_send_s", 1.5) or 1.5)
     intervalo_base = float(cfg.get("intervalo_envio_s", 4) or 4)
-    close_tab = bool(cfg.get("fechar_aba_apos_envio", True))
+    # Queue sending is safer without closing tabs aggressively; opt-in via wa_queue_close_tab.
+    close_tab = bool(cfg.get("wa_queue_close_tab", False))
 
     url = str(item.get("url") or "").strip()
     if not url:
@@ -186,7 +194,8 @@ def _send_wpp_item(item, cfg):
             raise RuntimeError("Celular inválido para envio")
         url = _build_wpp_url(phone, item.get("mensagem") or item.get("message") or "")
 
-    opened = webbrowser.open(url, new=1, autoraise=True)
+    # Reuse existing tab/window when possible instead of opening a new tab every message.
+    opened = webbrowser.open(url, new=0, autoraise=True)
     if not opened:
         try:
             os.startfile(url)
@@ -196,13 +205,16 @@ def _send_wpp_item(item, cfg):
     if not opened:
         raise RuntimeError("Não foi possível abrir o navegador padrão")
 
-    time.sleep(max(0.6, delay_open))
-    time.sleep(max(0.8, delay_before_send))
+    time.sleep(max(2.0, delay_open))
+    time.sleep(max(3.5, delay_before_send))
     pyautogui.moveTo(x, y, duration=0.12)
     pyautogui.click(x, y)
-    time.sleep(0.3)
+    time.sleep(0.5)
     pyautogui.press("enter")
-    time.sleep(max(0.4, delay_after_send))
+    # Extra confirmation key press helps when input focus lags after page load.
+    time.sleep(0.45)
+    pyautogui.press("enter")
+    time.sleep(max(0.8, delay_after_send))
     if close_tab:
         pyautogui.hotkey("ctrl", "w")
 
@@ -295,103 +307,231 @@ def _wa_monitor_snapshot_unlocked():
         "last_error": _wa_monitor.get("last_error") or "",
     }
 
+def _wa_detect_page_state(page):
+    """Return one of: connected | qr_required | disconnected."""
+    try:
+        # Connected state markers used by WhatsApp Web across versions.
+        has_side = page.locator("#pane-side").count() > 0
+        has_chat_input = page.locator("div[contenteditable='true'][role='textbox']").count() > 0
+        has_new_chat = page.locator("button[data-testid='chatlist-new-chat-button']").count() > 0
+        if has_side or has_chat_input or has_new_chat:
+            return "connected"
+    except Exception:
+        pass
+
+    try:
+        # QR screen markers (locale-agnostic where possible).
+        has_qr_canvas = page.locator("canvas").count() > 0
+        has_qr_hint = page.locator("[data-testid='qrcode']").count() > 0
+        has_link_device = page.locator("text=Linked devices").count() > 0 or page.locator("text=Aparelhos conectados").count() > 0
+        if has_qr_canvas or has_qr_hint or has_link_device:
+            return "qr_required"
+    except Exception:
+        pass
+
+    return "disconnected"
+
+def _wa_probe_existing_session():
+    if not PLAYWRIGHT_OK:
+        return None
+    try:
+        profile_dir = str(BASE / ".wa_session")
+        with sync_playwright() as p:
+            context = p.chromium.launch_persistent_context(
+                user_data_dir=profile_dir,
+                headless=True,
+                viewport={"width": 1200, "height": 760},
+            )
+            page = context.pages[0] if context.pages else context.new_page()
+            page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
+            page.wait_for_timeout(1300)
+            state = _wa_detect_page_state(page)
+            context.close()
+            return state
+    except Exception:
+        return None
+
 def _wa_monitor_loop():
-    global _wa_monitor_stop
+    global _wa_monitor_stop, _wa_monitor_open_request
     profile_dir = str(BASE / ".wa_session")
-    while True:
+    context = None
+    page = None
+    last_probe_ts = 0.0
+
+    if not PLAYWRIGHT_OK:
         with _wa_lock:
-            if _wa_monitor_stop:
-                _wa_monitor["running"] = False
-                _wa_monitor["updated_at"] = _now_iso()
-                _save_wa_state_unlocked()
-                break
+            _wa_monitor["running"] = False
+            _wa_monitor["playwright_ok"] = False
+            _wa_monitor["last_error"] = "playwright não instalado"
+            _wa_monitor["updated_at"] = _now_iso()
+            _wa_session["status"] = "degraded"
+            _wa_session["note"] = "Monitor WA indisponível: instale playwright"
+            _wa_session["updated_at"] = _now_iso()
+            _save_wa_state_unlocked()
+        return
 
-        if not PLAYWRIGHT_OK:
+    try:
+        with sync_playwright() as p:
             with _wa_lock:
-                _wa_monitor["running"] = False
-                _wa_monitor["last_error"] = "playwright não instalado"
+                _wa_monitor["running"] = True
+                _wa_monitor["playwright_ok"] = True
+                _wa_monitor["last_error"] = ""
                 _wa_monitor["updated_at"] = _now_iso()
-                _wa_session["status"] = "degraded"
-                _wa_session["note"] = "Instale playwright para monitor automático de sessão"
-                _wa_session["updated_at"] = _now_iso()
                 _save_wa_state_unlocked()
-            break
 
-        try:
-            with sync_playwright() as p:
-                context = p.chromium.launch_persistent_context(
-                    user_data_dir=profile_dir,
-                    headless=False,
-                    viewport={"width": 1366, "height": 768},
-                )
-                page = context.pages[0] if context.pages else context.new_page()
-                page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
+            while True:
+                with _wa_lock:
+                    if _wa_monitor_stop:
+                        _wa_monitor["running"] = False
+                        _wa_monitor["updated_at"] = _now_iso()
+                        _save_wa_state_unlocked()
+                        break
+                    need_open = bool(_wa_monitor_open_request)
+                    if need_open:
+                        _wa_monitor_open_request = False
 
-                while True:
-                    with _wa_lock:
-                        if _wa_monitor_stop:
-                            break
-                    page.wait_for_timeout(1200)
-                    has_chat = False
-                    has_qr = False
+                if need_open:
+                    if context is None:
+                        context = p.chromium.launch_persistent_context(
+                            user_data_dir=profile_dir,
+                            headless=False,
+                            viewport={"width": 1366, "height": 768},
+                        )
+                    if not page or page.is_closed():
+                        # Reuse an existing WhatsApp page in the persistent context when available.
+                        found = None
+                        for pg in context.pages:
+                            try:
+                                u = pg.url or ""
+                            except Exception:
+                                u = ""
+                            if "web.whatsapp.com" in u:
+                                found = pg
+                                break
+                        page = found if found is not None else (context.pages[0] if context.pages else context.new_page())
+                    page.goto("https://web.whatsapp.com", wait_until="domcontentloaded")
                     try:
-                        has_chat = page.locator("div[contenteditable='true'][data-tab]").count() > 0
+                        page.bring_to_front()
+                    except Exception:
+                        pass
+
+                has_chat = False
+                has_qr = False
+                if page and not page.is_closed():
+                    try:
+                        state_live = _wa_detect_page_state(page)
+                        has_chat = state_live == "connected"
+                        has_qr = state_live == "qr_required"
                     except Exception:
                         has_chat = False
-                    try:
-                        has_qr = page.locator("canvas[aria-label='Scan me!']").count() > 0 or page.locator("canvas").count() > 0
-                    except Exception:
                         has_qr = False
 
+                detected = None
+                if (not page or page.is_closed()) and (time.time() - last_probe_ts >= 12.0):
+                    detected = _wa_probe_existing_session()
+                    last_probe_ts = time.time()
+
+                with _wa_lock:
+                    _wa_monitor["running"] = True
+                    _wa_monitor["playwright_ok"] = True
+                    _wa_monitor["last_error"] = ""
+                    _wa_monitor["updated_at"] = _now_iso()
+
+                    if has_chat or detected == "connected":
+                        _wa_session["status"] = "connected"
+                        _wa_session["note"] = "WhatsApp Web conectado"
+                    elif has_qr or detected == "qr_required":
+                        _wa_session["status"] = "qr_required"
+                        _wa_session["note"] = "Aguardando leitura do QR code"
+                    else:
+                        sess = str(_wa_session.get("status") or "").strip().lower()
+                        if sess != "connected":
+                            _wa_session["status"] = "disconnected"
+                            _wa_session["note"] = "Monitor ativo. Clique em 'Conectar WhatsApp Web' para abrir e ler o QR."
+                    _wa_session["updated_at"] = _now_iso()
+                    _save_wa_state_unlocked()
+
+                if page and page.is_closed():
+                    page = None
+                    try:
+                        if context:
+                            context.close()
+                    except Exception:
+                        pass
+                    context = None
                     with _wa_lock:
-                        _wa_monitor["running"] = True
-                        _wa_monitor["playwright_ok"] = True
-                        _wa_monitor["last_error"] = ""
-                        _wa_monitor["updated_at"] = _now_iso()
-                        if has_chat:
-                            _wa_session["status"] = "connected"
-                            _wa_session["note"] = "WhatsApp Web conectado"
-                        elif has_qr:
-                            _wa_session["status"] = "qr_required"
-                            _wa_session["note"] = "Aguardando leitura do QR code"
-                        else:
-                            _wa_session["status"] = "degraded"
-                            _wa_session["note"] = "Não foi possível confirmar o estado do WhatsApp Web"
+                        _wa_session["status"] = "disconnected"
+                        _wa_session["note"] = "Janela do monitor fechada. Clique em 'Conectar WhatsApp Web' para reabrir."
                         _wa_session["updated_at"] = _now_iso()
                         _save_wa_state_unlocked()
 
-                context.close()
-        except Exception as e:
-            with _wa_lock:
-                _wa_monitor["running"] = False
-                _wa_monitor["last_error"] = str(e)
-                _wa_monitor["updated_at"] = _now_iso()
-                _wa_session["status"] = "degraded"
-                _wa_session["note"] = f"Erro no monitor WA: {e}"
-                _wa_session["updated_at"] = _now_iso()
-                _save_wa_state_unlocked()
-            time.sleep(2.0)
-            continue
+                time.sleep(1.2)
+    except Exception as e:
+        with _wa_lock:
+            _wa_monitor["running"] = False
+            _wa_monitor["last_error"] = str(e)
+            _wa_monitor["updated_at"] = _now_iso()
+            _wa_session["status"] = "degraded"
+            _wa_session["note"] = f"Erro no monitor WA: {e}"
+            _wa_session["updated_at"] = _now_iso()
+            _save_wa_state_unlocked()
+
+    try:
+        if context:
+            context.close()
+    except Exception:
+        pass
+
+def _wa_request_open_web():
+    global _wa_monitor_open_request
+    with _wa_lock:
+        _wa_monitor_open_request = True
+        _wa_session["note"] = "Abrindo WhatsApp Web para conexão..."
+        _wa_session["updated_at"] = _now_iso()
+        _save_wa_state_unlocked()
 
 def _wa_start_monitor_if_needed():
     global _wa_monitor_thread, _wa_monitor_stop
+    if _wa_monitor_thread and _wa_monitor_thread.is_alive():
+        with _wa_lock:
+            _wa_monitor["running"] = True
+            _wa_monitor["playwright_ok"] = PLAYWRIGHT_OK
+            _wa_monitor["updated_at"] = _now_iso()
+            _save_wa_state_unlocked()
+        return
+
+    detected = _wa_probe_existing_session()
+
     with _wa_lock:
-        if _wa_monitor.get("running"):
-            return
         _wa_monitor_stop = False
         _wa_monitor["running"] = True
-        _wa_monitor["updated_at"] = _now_iso()
+        _wa_monitor["playwright_ok"] = PLAYWRIGHT_OK
         _wa_monitor["last_error"] = ""
+        _wa_monitor["updated_at"] = _now_iso()
+
+        if detected == "connected":
+            _wa_session["status"] = "connected"
+            _wa_session["note"] = "Sessão WhatsApp já ativa"
+        elif detected == "qr_required":
+            _wa_session["status"] = "qr_required"
+            _wa_session["note"] = "Aguardando leitura do QR code"
+        else:
+            sess = str(_wa_session.get("status") or "").strip().lower()
+            if sess != "connected":
+                _wa_session["status"] = "disconnected"
+                _wa_session["note"] = "Monitor ativo. Clique em 'Conectar WhatsApp Web' para abrir e ler o QR."
+
+        _wa_session["updated_at"] = _now_iso()
         _save_wa_state_unlocked()
-    if _wa_monitor_thread and _wa_monitor_thread.is_alive():
-        return
+
     _wa_monitor_thread = threading.Thread(target=_wa_monitor_loop, daemon=True)
     _wa_monitor_thread.start()
 
 def _wa_stop_monitor():
-    global _wa_monitor_stop
+    global _wa_monitor_stop, _wa_monitor_open_request
     with _wa_lock:
         _wa_monitor_stop = True
+        _wa_monitor_open_request = False
         _wa_monitor["running"] = False
         _wa_monitor["updated_at"] = _now_iso()
         _save_wa_state_unlocked()
@@ -1020,6 +1160,11 @@ class Handler(http.server.BaseHTTPRequestHandler):
             except Exception as e:
                 self.send_json({"ok": False, "msg": str(e)})
 
+        elif p == "/api/wa/connect/open":
+            _wa_start_monitor_if_needed()
+            _wa_request_open_web()
+            self.send_json({"ok": True, "opened": True, "session_updated": True, "msg": "Abrindo WhatsApp Web no monitor"})
+
         elif p == "/api/wa/session":
             body = self.read_body()
             status = str(body.get("status") or "").strip().lower()
@@ -1167,8 +1312,11 @@ if __name__ == "__main__":
     import webbrowser
     _load_wa_state()
     _wa_start_worker_if_needed()
-    server = http.server.HTTPServer(("localhost", PORT), Handler)
-    url = f"http://localhost:{PORT}"
+    _wa_start_monitor_if_needed()
+    # Force IPv4 loopback to avoid localhost resolving to a different stack/process.
+    host = "127.0.0.1"
+    server = http.server.ThreadingHTTPServer((host, PORT), Handler)
+    url = f"http://{host}:{PORT}"
     print(f"")
     print(f"  ========================================")
     print(f"  ACA - Central de Inteligencia v2.1")

@@ -325,13 +325,16 @@ input[type=checkbox]{width:14px;height:14px;accent-color:var(--accent);cursor:po
       <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap">
         <div id="wa-session-label" style="font-size:12px;color:var(--muted)">Sessão WA: desconhecida</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap">
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="controlWaMonitor('start')">Iniciar Monitor</button>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="controlWaMonitor('stop')">Parar Monitor</button>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('qr_required')">QR</button>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('connected')">Conectado</button>
-          <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('disconnected')">Desconectado</button>
+          <button class="btn btn-ghost" id="wa-monitor-toggle" style="padding:4px 8px;font-size:11px" onclick="toggleWaMonitor()">Iniciar Monitor</button>
+          <button class="btn btn-ghost" id="wa-connect-btn" style="padding:4px 8px;font-size:11px" onclick="openWaConnect()">Conectar WhatsApp Web</button>
           <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="refreshWaRuntime()">Atualizar</button>
+          <button class="btn btn-ghost" id="wa-advanced-toggle" style="padding:4px 8px;font-size:11px" onclick="toggleWaAdvanced()">Avançado</button>
         </div>
+      </div>
+      <div id="wa-advanced-actions" style="display:none;margin-top:8px;gap:6px;flex-wrap:wrap">
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('qr_required')">QR</button>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('connected')">Conectado</button>
+        <button class="btn btn-ghost" style="padding:4px 8px;font-size:11px" onclick="setWaSession('disconnected')">Desconectado</button>
       </div>
       <div id="wa-queue-label" style="font-size:11px;color:var(--muted);margin-top:6px">Fila: 0 pendentes | 0 enviadas | 0 falhas</div>
     </div>
@@ -899,6 +902,7 @@ let _waRuntime = {
   monitor: {running:false, playwright_ok:false, updated_at:null, last_error:''}
 };
 let _waPoll = null;
+let _waAdvancedOpen = false;
 
 function startWaPoll(){
   if(_waPoll) return;
@@ -922,6 +926,30 @@ function updateWaPanel(){
   const monTxt = m.running ? 'monitor ativo' : (m.playwright_ok ? 'monitor parado' : 'playwright ausente');
   if(sessLbl) sessLbl.textContent = `Sessão WA: ${sTxt}${sess.note ? ' · '+sess.note : ''} · ${monTxt}`;
   if(qLbl) qLbl.textContent = `Fila: ${Number(q.pending||0)} pendentes | ${Number(q.processing||0)} processando | ${Number(q.sent||0)} enviadas | ${Number(q.failed||0)} falhas`;
+
+  const monBtn = document.getElementById('wa-monitor-toggle');
+  if(monBtn){
+    monBtn.textContent = m.running ? 'Parar Monitor' : 'Iniciar Monitor';
+    if(m.running){
+      monBtn.style.background = '#16a34a';
+      monBtn.style.borderColor = '#16a34a';
+      monBtn.style.color = '#ffffff';
+    }else{
+      monBtn.style.background = '';
+      monBtn.style.borderColor = '';
+      monBtn.style.color = '';
+    }
+  }
+
+  const connectBtn = document.getElementById('wa-connect-btn');
+  if(connectBtn){
+    const canConnect = Boolean(m.running) && String(sess.status||'') !== 'connected';
+    connectBtn.disabled = !canConnect;
+    connectBtn.style.opacity = canConnect ? '1' : '.55';
+    connectBtn.title = canConnect
+      ? 'Abrir WhatsApp Web para leitura de QR'
+      : 'Sessão já conectada ou monitor desligado';
+  }
 }
 
 function _syncSentFromQueueItems(items){
@@ -957,7 +985,7 @@ async function refreshWaRuntime(){
 
     if(_campStatus==='confirmado'){
       _sendIdx = Number(_waRuntime.queue.sent||0);
-      const total = _sendQueue.length || _campSel.size;
+      const total = _sendExpected || _sendQueue.length || _campSel.size;
       if(total>0){
         const done = Math.min(total, Number(_waRuntime.queue.sent||0) + Number(_waRuntime.queue.failed||0));
         document.getElementById('sp-count').textContent = `${done} de ${total}`;
@@ -968,8 +996,10 @@ async function refreshWaRuntime(){
           document.getElementById('sp-curr').textContent = '⏸ Pausado — clique ▶ para retomar';
         }
       }
-      if(total>0 && Number(_waRuntime.queue.pending||0)===0 && Number(_waRuntime.queue.processing||0)===0 && !_waRuntime.queue.running){
+      const doneFinal = Number(_waRuntime.queue.sent||0) + Number(_waRuntime.queue.failed||0);
+      if(_sendRunActive && total>0 && doneFinal>=total && Number(_waRuntime.queue.pending||0)===0 && Number(_waRuntime.queue.processing||0)===0 && !_waRuntime.queue.running){
         _playing = false;
+        _sendRunActive = false;
         const spinnerEl=document.getElementById('sp-spinner');
         if(spinnerEl){ spinnerEl.className='spinner done'; spinnerEl.textContent='✓'; }
         document.getElementById('sp-curr').textContent = Number(_waRuntime.queue.failed||0)>0
@@ -1017,6 +1047,46 @@ async function controlWaMonitor(action){
       body:JSON.stringify({action})
     });
   }catch{}
+  refreshWaRuntime();
+}
+
+async function toggleWaMonitor(){
+  const running = Boolean(_waRuntime?.monitor?.running);
+  await controlWaMonitor(running ? 'stop' : 'start');
+}
+
+function toggleWaAdvanced(){
+  _waAdvancedOpen = !_waAdvancedOpen;
+  const adv = document.getElementById('wa-advanced-actions');
+  const btn = document.getElementById('wa-advanced-toggle');
+  if(adv){
+    adv.style.display = _waAdvancedOpen ? 'flex' : 'none';
+  }
+  if(btn){
+    btn.textContent = _waAdvancedOpen ? 'Ocultar Avançado' : 'Avançado';
+  }
+}
+
+async function openWaConnect(){
+  try{
+    const r = await fetch(SERVER+'/api/wa/connect/open',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({})
+    });
+    const d = await r.json();
+    if(!r.ok || !d.ok){
+      alert(d?.msg || 'Falha ao abrir WhatsApp Web');
+      return;
+    }
+    if(d.session_updated){
+      await setWaSession('qr_required');
+      return;
+    }
+  }catch{
+    alert('Servidor offline para abrir WhatsApp Web');
+    return;
+  }
   refreshWaRuntime();
 }
 
@@ -1485,6 +1555,7 @@ function renderRadarTable(){
 
 // ── Envio Automático (Start/Stop loop) ────────────────────────────────────────
 let _playing=false, _sendIdx=0, _sendQueue=[];
+let _sendExpected=0, _sendRunActive=false;
 
 function toggleSend(){
   if(_playing){
@@ -1508,7 +1579,7 @@ async function startSend(){
   if(_campStatus !== 'confirmado') return;
   if((_waRuntime.session?.status||'')!=='connected'){
     document.getElementById('send-progress-wrap').style.display='';
-    document.getElementById('sp-curr').textContent='⚠ Sessão WA não conectada. Marque como Conectado após ler o QR.';
+    document.getElementById('sp-curr').textContent='⚠ Sessão WA não conectada. Clique em Conectar WhatsApp Web e leia o QR.';
     return;
   }
 
@@ -1537,9 +1608,16 @@ async function startSend(){
     });
     const da = await ra.json();
     if(!ra.ok || !da.ok) throw new Error(da?.msg||'Falha ao iniciar fila');
+    const added = Number(da?.added||0);
+    if(added<=0) throw new Error('Nenhum paciente válido para envio (telefone ausente/inválido).');
+    _sendExpected = added;
+    _sendRunActive = true;
   }catch(e){
     document.getElementById('send-progress-wrap').style.display='';
     document.getElementById('sp-curr').textContent=`❌ Falha ao iniciar fila: ${e?.message||'erro'}`;
+    _playing=false;
+    _sendRunActive=false;
+    _sendExpected=0;
     return;
   }
 
@@ -1549,7 +1627,7 @@ async function startSend(){
   const spinnerEl=document.getElementById('sp-spinner');
   if(spinnerEl){ spinnerEl.className='spinner'; spinnerEl.textContent=''; }
   document.getElementById('sp-curr').textContent='▶ Fila iniciada no backend';
-  document.getElementById('sp-count').textContent=`0 de ${_sendQueue.length}`;
+  document.getElementById('sp-count').textContent=`0 de ${_sendExpected||_sendQueue.length}`;
   document.getElementById('sp-name').textContent='';
   document.getElementById('sp-bar').style.width='0%';
   updateCampCardUI();
