@@ -22,7 +22,10 @@ export default function Orcamentos() {
   };
 
   React.useEffect(() => {
-    fetch('http://localhost:3000/api/orcamentos/abertos')
+    const token = localStorage.getItem('aca_token');
+    fetch('http://localhost:3000/api/orcamentos/abertos', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
       .then(res => res.json())
       .then(data => {
         const mapped = data.map(o => {

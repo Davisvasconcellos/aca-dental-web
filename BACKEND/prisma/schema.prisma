@@ -9,9 +9,10 @@ datasource db {
 
 model Paciente {
   id                    String    @id @default(uuid())
-  id_sDental            String    @unique
+  id_sDental            String
   nome                  String
   telefone              String?
+  organization_id       String
   
   ultima_limpeza_data   DateTime?
   ultima_evolucao_data  DateTime?
@@ -21,17 +22,23 @@ model Paciente {
   
   orcamentos            Orcamento[]
   campanhas_alvo        CampanhaAlvo[]
+  
+  organization          Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  
+  @@unique([id_sDental, organization_id])
 }
 
 model Orcamento {
   id                    String    @id
   paciente_id           String
+  organization_id       String
   descricao             String?
   status                String
   data_orcamento        DateTime
   valor_total           Float
   
   paciente              Paciente  @relation(fields: [paciente_id], references: [id])
+  organization          Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
   tratamentos           Tratamento[]
 }
 
@@ -49,10 +56,12 @@ model Campanha {
   nome              String
   mensagem_template String
   status            String
+  organization_id   String
   data_inicio       DateTime       @default(now())
   data_fim          DateTime?
   
   alvos             CampanhaAlvo[]
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 }
 
 model CampanhaAlvo {
@@ -68,6 +77,35 @@ model CampanhaAlvo {
 }
 
 model Configuracao {
-  chave   String  @id
-  valor   String
+  id              Int           @id @default(autoincrement())
+  chave           String
+  valor           String
+  organization_id String
+  
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+
+  @@unique([chave, organization_id])
+}
+
+model Organization {
+  id           String    @id @default(uuid())
+  nome         String
+  logo         String?
+  evo_instance String?
+  
+  usuarios     Usuario[]
+  pacientes    Paciente[]
+  orcamentos   Orcamento[]
+  campanhas    Campanha[]
+  configuracoes Configuracao[]
+}
+
+model Usuario {
+  id              String        @id @default(uuid())
+  email           String        @unique
+  senha           String
+  role            String        @default("ADMIN")
+  organization_id String?
+  
+  organization    Organization? @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 }

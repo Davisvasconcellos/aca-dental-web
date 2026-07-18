@@ -9,8 +9,14 @@ export default function VisaoGeral() {
   const [consultaDias, setConsultaDias] = useState(60);
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/dashboard')
-      .then(res => res.json())
+    const token = localStorage.getItem('aca_token');
+    fetch('http://localhost:3000/api/dashboard', {
+      headers: { 'Authorization': `Bearer ${token}` }
+    })
+      .then(res => {
+        if (!res.ok) throw new Error('Falha na autenticação ou erro no servidor');
+        return res.json();
+      })
       .then(d => {
         setData(d);
         setLoading(false);

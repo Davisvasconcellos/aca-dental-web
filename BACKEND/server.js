@@ -11,22 +11,29 @@ const PORT = process.env.PORT || 3000;
 const configRoutes = require('./routes/configRoutes');
 const updateRoutes = require('./routes/updateRoutes');
 const campanhaRoutes = require('./routes/campanhaRoutes');
+const authRoutes = require('./routes/authRoutes');
+const adminRoutes = require('./routes/adminRoutes');
+const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
 app.use(cors());
 app.use(express.json());
 
 // Usar rotas
-app.use('/api/config', configRoutes);
-app.use('/api/update', updateRoutes);
-app.use('/api/campanhas', campanhaRoutes);
+app.use('/api/auth', authRoutes);
+app.use('/api/admin', adminRoutes);
+app.use('/api/config', authMiddleware, configRoutes);
+app.use('/api/update', authMiddleware, updateRoutes);
+app.use('/api/campanhas', authMiddleware, campanhaRoutes);
 
 // ----------------------------------------------------
 // ROTA DO DASHBOARD (Visão Geral)
 // ----------------------------------------------------
-app.get('/api/dashboard', async (req, res) => {
+app.get('/api/dashboard', authMiddleware, async (req, res) => {
   try {
-    const configs = await prisma.configuracao.findMany();
+    const orgId = req.user.organization_id;
+    console.log(`[DASHBOARD] user orgId: ${orgId}`);
+    const configs = await prisma.configuracao.findMany({ where: { organization_id: orgId } });
     const configMap = {};
     configs.forEach(c => configMap[c.chave] = c.valor);
     
@@ -36,6 +43,7 @@ app.get('/api/dashboard', async (req, res) => {
 
     // Trazemos pacientes com datas de limpeza e consulta
     const pacientes = await prisma.paciente.findMany({
+      where: { organization_id: orgId },
       select: {
         id: true,
         nome: true,
@@ -46,6 +54,7 @@ app.get('/api/dashboard', async (req, res) => {
 
     // Trazemos todos os orçamentos (para gráficos de pizza, status e linhas)
     const orcamentos = await prisma.orcamento.findMany({
+      where: { organization_id: orgId },
       select: {
         id: true,
         status: true,
@@ -61,6 +70,7 @@ app.get('/api/dashboard', async (req, res) => {
       }
     });
 
+    console.log(`[DASHBOARD] Return: ${pacientes.length} pacientes, ${orcamentos.length} orcamentos`);
     res.json({
       configs: { valorKpiLimpeza, valorKpiConsulta },
       pacientes,
@@ -75,11 +85,15 @@ app.get('/api/dashboard', async (req, res) => {
 // ----------------------------------------------------
 // ROTAS DE PACIENTES (Todos)
 // ----------------------------------------------------
-app.get('/api/pacientes', async (req, res) => {
+app.get('/api/pacientes', authMiddleware, async (req, res) => {
   try {
+    const orgId = req.user.organization_id;
+    console.log(`[PACIENTES] user orgId: ${orgId}`);
     const pacientes = await prisma.paciente.findMany({
+      where: { organization_id: orgId },
       orderBy: { nome: 'asc' },
     });
+    console.log(`[PACIENTES] Return: ${pacientes.length} pacientes`);
     res.json(pacientes);
   } catch (error) {
     console.error(error);
@@ -90,15 +104,17 @@ app.get('/api/pacientes', async (req, res) => {
 // ----------------------------------------------------
 // ROTAS DO RADAR DE LIMPEZA
 // ----------------------------------------------------
-app.get('/api/limpeza/radar', async (req, res) => {
+app.get('/api/limpeza/radar', authMiddleware, async (req, res) => {
   try {
-    const configs = await prisma.configuracao.findMany();
+    const orgId = req.user.organization_id;
+    const configs = await prisma.configuracao.findMany({ where: { organization_id: orgId } });
     const configMap = {};
     configs.forEach(c => configMap[c.chave] = c.valor);
     const radarDias = parseInt(configMap.radar_limpeza_dias || '180');
 
     // Busca os pacientes para o radar: ordenados por score (maiores primeiro)
     const pacientes = await prisma.paciente.findMany({
+      where: { organization_id: orgId },
       orderBy: { score: 'desc' }
     });
     
@@ -112,10 +128,11 @@ app.get('/api/limpeza/radar', async (req, res) => {
 // ----------------------------------------------------
 // ROTAS DE ORÇAMENTOS
 // ----------------------------------------------------
-app.get('/api/orcamentos/abertos', async (req, res) => {
+app.get('/api/orcamentos/abertos', authMiddleware, async (req, res) => {
   try {
+    const orgId = req.user.organization_id;
     const orcamentos = await prisma.orcamento.findMany({
-      where: { status: 'EM_ABERTO' },
+      where: { status: 'EM_ABERTO', organization_id: orgId },
       include: {
         paciente: { select: { nome: true, telefone: true, id_sDental: true } },
         tratamentos: true

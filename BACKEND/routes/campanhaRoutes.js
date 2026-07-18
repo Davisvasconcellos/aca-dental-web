@@ -7,7 +7,9 @@ const prisma = new PrismaClient();
 // Lista todas as campanhas, ordenadas por data de início (mais recentes primeiro)
 router.get('/', async (req, res) => {
   try {
+    const orgId = req.user.organization_id;
     const campanhas = await prisma.campanha.findMany({
+      where: { organization_id: orgId },
       orderBy: { data_inicio: 'desc' },
       include: {
         _count: {
@@ -40,8 +42,9 @@ router.get('/', async (req, res) => {
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const campanha = await prisma.campanha.findUnique({
-      where: { id },
+    const orgId = req.user.organization_id;
+    const campanha = await prisma.campanha.findFirst({
+      where: { id, organization_id: orgId },
       include: {
         alvos: {
           include: {
@@ -74,11 +77,13 @@ router.post('/', async (req, res) => {
     const alvos = (pacientesIds && Array.isArray(pacientesIds)) ? pacientesIds : [];
 
     // Criar a campanha e os alvos em uma transação
+    const orgId = req.user.organization_id;
     const novaCampanha = await prisma.campanha.create({
       data: {
         nome,
         mensagem_template: mensagem_template || '',
         status: 'ATIVA',
+        organization_id: orgId,
         alvos: {
           create: alvos.map(id => ({
             paciente_id: id,

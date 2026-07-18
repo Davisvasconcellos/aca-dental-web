@@ -1,4 +1,11 @@
 import React, { useState, useEffect } from 'react';
+
+const fetchAuth = (url, options = {}) => {
+  const token = localStorage.getItem('aca_token');
+  options.headers = { ...options.headers, Authorization: `Bearer ${token}` };
+  return fetch(url, options);
+};
+
 import { useNavigate } from 'react-router-dom';
 
 export default function Campanhas() {
@@ -14,7 +21,7 @@ export default function Campanhas() {
 
   const fetchCampanhas = async () => {
     try {
-      const res = await fetch('http://localhost:3000/api/campanhas');
+      const res = await fetchAuth('http://localhost:3000/api/campanhas');
       const data = await res.json();
       setCampanhas(data);
       setLoading(false);
@@ -33,7 +40,7 @@ export default function Campanhas() {
     if (!campaignToDelete) return;
     
     try {
-      await fetch(`http://localhost:3000/api/campanhas/${campaignToDelete}`, { method: 'DELETE' });
+      await fetchAuth(`http://localhost:3000/api/campanhas/${campaignToDelete}`, { method: 'DELETE' });
       setCampanhas(campanhas.filter(c => c.id !== campaignToDelete));
       setDeleteModalOpen(false);
       setCampaignToDelete(null);

@@ -6,7 +6,10 @@ const prisma = new PrismaClient();
 // Obter todas as configurações
 router.get('/', async (req, res) => {
   try {
-    const configs = await prisma.configuracao.findMany();
+    const orgId = req.user.organization_id;
+    const configs = await prisma.configuracao.findMany({
+      where: { organization_id: orgId }
+    });
     const configMap = {};
     configs.forEach(c => {
       configMap[c.chave] = c.valor;
@@ -23,11 +26,12 @@ router.post('/', async (req, res) => {
     const data = req.body; // { "token": "abc", "msg_padrao": "..." }
     const saved = {};
     
+    const orgId = req.user.organization_id;
     for (const [chave, valor] of Object.entries(data)) {
       await prisma.configuracao.upsert({
-        where: { chave },
+        where: { chave_organization_id: { chave, organization_id: orgId } },
         update: { valor: String(valor) },
-        create: { chave, valor: String(valor) }
+        create: { chave, valor: String(valor), organization_id: orgId }
       });
       saved[chave] = valor;
     }
@@ -45,7 +49,10 @@ router.post('/testar-token', async (req, res) => {
     
     if (!token) {
       // Pega o atual do DB
-      const dbToken = await prisma.configuracao.findUnique({ where: { chave: 'token' } });
+      const orgId = req.user.organization_id;
+      const dbToken = await prisma.configuracao.findUnique({ 
+        where: { chave_organization_id: { chave: 'token', organization_id: orgId } } 
+      });
       token = dbToken?.valor;
     }
 
@@ -132,7 +139,10 @@ router.post('/testar-evolution', async (req, res) => {
 // Buscar QR Code de Conexão da Evolution API
 router.get('/evolution-qr', async (req, res) => {
   try {
-    const configs = await prisma.configuracao.findMany();
+    const orgId = req.user.organization_id;
+    const configs = await prisma.configuracao.findMany({
+      where: { organization_id: orgId }
+    });
     const configMap = {};
     configs.forEach(c => { configMap[c.chave] = c.valor; });
     
@@ -169,6 +179,46 @@ router.get('/evolution-qr', async (req, res) => {
   } catch (err) {
     console.error('[EVOLUTION QR ERROR]', err);
     res.status(500).json({ ok: false, msg: `Erro interno: ${err.message}` });
+  }
+});
+
+// Buscar Status da Instância da Evolution API
+router.get('/evolution-status', async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const configs = await prisma.configuracao.findMany({
+      where: { organization_id: orgId }
+    });
+    const configMap = {};
+    configs.forEach(c => { configMap[c.chave] = c.valor; });
+    
+    const url = configMap['evo_url'];
+    const instance = configMap['evo_instance'];
+    const apikey = configMap['evo_apikey'];
+
+    if (!url || !instance || !apikey) {
+      return res.json({ ok: true, state: 'NOT_CONFIGURED' });
+    }
+
+    const apiUrl = `${url.replace(/\/$/, '')}/instance/connectionState/${instance}`;
+    
+    const response = await fetch(apiUrl, {
+      method: 'GET',
+      headers: { 'apikey': apikey }
+    });
+
+    const data = await response.json().catch(() => null);
+
+    if (response.ok && data) {
+      // Retorna o state real (open, close, connecting)
+      const state = data.instance?.state || data.state || 'DISCONNECTED';
+      return res.json({ ok: true, state: state.toUpperCase() });
+    } else {
+      return res.json({ ok: true, state: 'ERROR' });
+    }
+  } catch (err) {
+    console.error('[EVOLUTION STATUS ERROR]', err);
+    return res.json({ ok: true, state: 'ERROR' });
   }
 });
 

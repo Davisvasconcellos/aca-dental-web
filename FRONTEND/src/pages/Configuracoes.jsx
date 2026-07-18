@@ -1,6 +1,15 @@
 import React, { useState, useEffect } from 'react';
 
+const fetchAuth = (url, options = {}) => {
+  const token = localStorage.getItem('aca_token');
+  options.headers = { ...options.headers, Authorization: `Bearer ${token}` };
+  return fetch(url, options);
+};
+
+import { useAuth } from '../contexts/AuthContext';
+
 export default function Configuracoes() {
+  const { isMaster } = useAuth();
   const [activeTab, setActiveTab] = useState('auth');
   const [statusMsg, setStatusMsg] = useState('');
   const [statusType, setStatusType] = useState('success');
@@ -28,6 +37,9 @@ export default function Configuracoes() {
   });
 
   const [tokenInput, setTokenInput] = useState('');
+  
+  // Real instance status
+  const [realEvoStatus, setRealEvoStatus] = useState('Verificando...');
   const [showApiKey, setShowApiKey] = useState(false);
   const [showTestEvo, setShowTestEvo] = useState(false);
 
@@ -43,10 +55,24 @@ export default function Configuracoes() {
   const [lastUpdated, setLastUpdated] = useState({ users: '—', orc: '—', evo: '—' });
 
   useEffect(() => {
-    fetch('http://localhost:3000/api/config')
+    fetchAuth('http://localhost:3000/api/config')
       .then(res => res.json())
       .then(data => {
         setConfigs(prev => ({ ...prev, ...data }));
+        
+        // Initialize last updated from DB
+        setLastUpdated({
+          users: data.last_update_users || '',
+          patients: data.last_update_patients || '',
+          metrics: data.last_update_metrics || '',
+          budgets: data.last_update_budgets || ''
+        });
+
+        if (data.evo_instance && data.evo_apikey) {
+          checkRealEvoStatus();
+        } else {
+          setRealEvoStatus('Não configurada');
+        }
         setLoadingConfig(false);
       })
       .catch(err => {
@@ -54,6 +80,26 @@ export default function Configuracoes() {
         setLoadingConfig(false);
       });
   }, []);
+
+  const checkRealEvoStatus = () => {
+    fetchAuth('http://localhost:3000/api/config/evolution-status')
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          if (data.state === 'OPEN') setRealEvoStatus('Conectada (Ativa)');
+          else if (data.state === 'CONNECTING') setRealEvoStatus('Conectando...');
+          else if (data.state === 'CLOSE' || data.state === 'DISCONNECTED') setRealEvoStatus('Desconectada');
+          else setRealEvoStatus(data.state);
+        } else {
+          setRealEvoStatus('Erro de conexão');
+        }
+      })
+      .catch(() => setRealEvoStatus('Erro'));
+  };
+
+  useEffect(() => {
+    if (isMaster && activeTab === 'auth') setActiveTab('wa');
+  }, [isMaster, activeTab]);
 
   const showStatus = (msg, type) => {
     setStatusMsg(msg);
@@ -70,7 +116,7 @@ export default function Configuracoes() {
   };
 
   const handleSaveAll = () => {
-    fetch('http://localhost:3000/api/config', {
+    fetchAuth('http://localhost:3000/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(configs)
@@ -94,7 +140,7 @@ export default function Configuracoes() {
       return;
     }
     
-    fetch('http://localhost:3000/api/config', {
+    fetchAuth('http://localhost:3000/api/config', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: t })
@@ -114,7 +160,7 @@ export default function Configuracoes() {
 
   const handleTestCurrentToken = () => {
     showStatus('Testando token atual salvo...', '');
-    fetch('http://localhost:3000/api/config/testar-token', {
+    fetchAuth('http://localhost:3000/api/config/testar-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
@@ -130,7 +176,7 @@ export default function Configuracoes() {
   const handleTestNewToken = () => {
     const t = tokenInput.trim();
     showStatus('Testando...', '');
-    fetch('http://localhost:3000/api/config/testar-token', {
+    fetchAuth('http://localhost:3000/api/config/testar-token', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: t })
@@ -147,7 +193,7 @@ export default function Configuracoes() {
     setQrBase64('');
     
     try {
-      const res = await fetch('http://localhost:3000/api/config/evolution-qr');
+      const res = await fetchAuth('http://localhost:3000/api/config/evolution-qr');
       const data = await res.json();
       
       if (data.ok && data.base64) {
@@ -192,7 +238,15 @@ export default function Configuracoes() {
         
         // Define a última atualização
         const now = new Date();
-        setLastUpdated(p => ({ ...p, [key]: now.toLocaleDateString() + ' às ' + now.toLocaleTimeString() }));
+        const timestampStr = now.toLocaleDateString() + ' às ' + now.toLocaleTimeString();
+        setLastUpdated(p => ({ ...p, [key]: timestampStr }));
+
+        // Salvar a data no banco em background
+        fetchAuth('http://localhost:3000/api/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ [`last_update_${key}`]: timestampStr })
+        }).catch(() => {});
 
         eventSource.close();
         resolve(true);
@@ -255,13 +309,13 @@ export default function Configuracoes() {
       </div>
 
       <div className="cfg-inner-tabs">
-        <div className={`cfg-inner-tab ${activeTab === 'auth' ? 'active' : ''}`} onClick={() => setActiveTab('auth')}>Autenticação</div>
+        {!isMaster && <div className={`cfg-inner-tab ${activeTab === 'auth' ? 'active' : ''}`} onClick={() => setActiveTab('auth')}>Autenticação</div>}
         <div className={`cfg-inner-tab ${activeTab === 'wa' ? 'active' : ''}`} onClick={() => setActiveTab('wa')}>WhatsApp & Mensagens</div>
-        <div className={`cfg-inner-tab ${activeTab === 'rules' ? 'active' : ''}`} onClick={() => setActiveTab('rules')}>Regras e Valores</div>
-        <div className={`cfg-inner-tab ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>Atualização da Base</div>
+        {!isMaster && <div className={`cfg-inner-tab ${activeTab === 'rules' ? 'active' : ''}`} onClick={() => setActiveTab('rules')}>Regras e Valores</div>}
+        {!isMaster && <div className={`cfg-inner-tab ${activeTab === 'update' ? 'active' : ''}`} onClick={() => setActiveTab('update')}>Atualização da Base</div>}
       </div>
 
-      {activeTab === 'auth' && (
+      {!isMaster && activeTab === 'auth' && (
         <div className="cfg-card">
           <div className="cfg-pane active">
             <h4>🔑 Token de Autenticação</h4>
@@ -316,56 +370,48 @@ export default function Configuracoes() {
 
       {activeTab === 'wa' && (
         <>
+          {/* TOPO: Título e Botão de Salvar Separados */}
+          <div className="cfg-card" style={{ marginBottom: '20px' }}>
+            <div className="cfg-pane active" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px' }}>
+              <h4 style={{ margin: 0 }}>💬 Configurações do WhatsApp Automático</h4>
+              <button className="btn btn-primary" onClick={handleSaveAll}>💾 Salvar Tudo</button>
+            </div>
+          </div>
+
+          {/* SESSÃO: API WHATSAPP */}
           <div className="cfg-card">
             <div className="cfg-pane active">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                <h4>💬 Configurações do WhatsApp Automático</h4>
-                <button className="btn btn-primary" onClick={handleSaveAll}>💾 Salvar Tudo</button>
-              </div>
-
               {/* EVOLUTION API SECTION */}
-              <div style={{ marginBottom: '30px' }}>
+              {!isMaster && (
+                <div style={{ marginBottom: '30px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                  <h4 style={{ margin: 0, color: 'var(--accent)' }}>🚀 Evolution API (Disparo Automático)</h4>
-                  <button className="btn btn-ghost" onClick={handleFetchQr} style={{ border: '1px solid var(--border)' }}>📱 Parear WhatsApp (QR)</button>
+                  <h4 style={{ margin: 0, color: 'var(--accent)' }}>🚀 API WhatsApp</h4>
+                  <button type="button" className="btn btn-ghost" onClick={handleFetchQr} style={{ border: '1px solid var(--border)' }}>📱 Parear WhatsApp (QR)</button>
                 </div>
                 <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '20px' }}>
-                  Conecte sua própria VPS rodando o Evolution API para envios invisíveis em background, sem precisar usar navegadores.
+                  conecte para enviar mensagens
                 </div>
                 
-                <div className="modal-section">
-                  <label>URL da Evolution API</label>
-                  <div className="cfg-row">
-                    <input type="text" name="evo_url" placeholder="https://sua-api.com.br" value={configs.evo_url || ''} onChange={handleChange} />
-                  </div>
-                </div>
-
                 <div className="cfg-grid-two" style={{ marginTop: '16px' }}>
                   <div className="modal-section">
-                    <label>Instância</label>
-                    <div className="cfg-row">
-                      <input type="text" name="evo_instance" placeholder="Ex: aca-clinica" value={configs.evo_instance || ''} onChange={handleChange} />
-                    </div>
-                  </div>
-                  <div className="modal-section">
-                    <label>Global API Key</label>
-                    <div className="cfg-row" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                      <input 
-                        type={showApiKey ? 'text' : 'password'} 
-                        name="evo_apikey" 
-                        placeholder="Sua chave secreta" 
-                        value={configs.evo_apikey || ''} 
-                        onChange={handleChange} 
-                        style={{ flex: 1 }}
-                      />
-                      <button 
-                        className="btn btn-ghost" 
-                        style={{ padding: '4px 8px' }} 
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        title={showApiKey ? "Ocultar" : "Mostrar"}
-                      >
-                        {showApiKey ? '🙈' : '👁️'}
-                      </button>
+                    <label>Status da Instância</label>
+                    <div className="cfg-row" style={{ padding: '10px', background: 'var(--bg)', borderRadius: '6px', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <strong>{configs.evo_instance || 'Nenhuma'}</strong>
+                      <span>-</span>
+                      <span style={{ 
+                        background: configs.evo_instance ? 'rgba(34, 197, 94, 0.1)' : 'rgba(239, 68, 68, 0.1)', 
+                        color: configs.evo_instance ? 'var(--green)' : 'var(--red)', 
+                        padding: '4px 8px', 
+                        borderRadius: '4px', 
+                        fontSize: '11px', 
+                        fontWeight: 'bold',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px'
+                      }}>
+                        <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: realEvoStatus === 'Conectada (Ativa)' ? 'var(--green)' : 'var(--red)' }}></div>
+                        {realEvoStatus}
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -376,7 +422,7 @@ export default function Configuracoes() {
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                     onClick={() => setShowTestEvo(!showTestEvo)}
                   >
-                    <h5 style={{ fontSize: '12px', margin: 0, color: 'var(--accent)' }}>🧪 Testar Disparo via Evolution API</h5>
+                    <h5 style={{ fontSize: '12px', margin: 0, color: 'var(--accent)' }}>🧪 Testar Disparo via WhatsApp API</h5>
                     <span style={{ color: 'var(--muted)', fontSize: '14px' }}>{showTestEvo ? '▲' : '▼'}</span>
                   </div>
                   
@@ -411,7 +457,7 @@ export default function Configuracoes() {
                               const phone = document.getElementById('test_evo_phone').value;
                               const message = document.getElementById('test_evo_msg').value;
                               
-                              const res = await fetch('http://localhost:3000/api/config/testar-evolution', {
+                              const res = await fetchAuth('http://localhost:3000/api/config/testar-evolution', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
@@ -445,8 +491,9 @@ export default function Configuracoes() {
                   )}
                 </div>
               </div>
-            </div>
+            )}
           </div>
+        </div>
 
           <div className="cfg-card">
             <div className="cfg-pane active">
@@ -492,7 +539,7 @@ export default function Configuracoes() {
         </>
       )}
 
-      {activeTab === 'rules' && (
+      {!isMaster && activeTab === 'rules' && (
         <div className="cfg-card">
           <div className="cfg-pane active">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -568,7 +615,7 @@ export default function Configuracoes() {
         </div>
       )}
 
-        {activeTab === 'update' && (
+        {!isMaster && activeTab === 'update' && (
           <div className="cfg-pane active">
             <div className="cfg-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
