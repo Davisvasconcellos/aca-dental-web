@@ -515,8 +515,8 @@ export default function Configuracoes() {
 
                 <div className="modal-section">
                   <label style={{ display: 'flex', justifyContent: 'space-between' }}>
-                    <span>Intervalo de Envio (s)</span>
-                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent)' }}>{configs.intervalo_envio_s || 9}s</span>
+                    <span>Intervalo Máximo de Envio (s)</span>
+                    <span style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent)' }}>Até {configs.intervalo_envio_s || 9}s</span>
                   </label>
                   <div className="cfg-row">
                     <input 
@@ -529,7 +529,7 @@ export default function Configuracoes() {
                     />
                   </div>
                   <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-                    Tempo de espera entre o envio de uma mensagem e outra (evita bloqueios).
+                    O sistema sorteará um tempo aleatório (entre 2s e o tempo configurado) a cada envio para imitar comportamento humano e evitar bloqueio anti-spam.
                   </div>
                 </div>
               </div>

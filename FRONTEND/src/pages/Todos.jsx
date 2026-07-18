@@ -205,7 +205,7 @@ export default function Todos() {
       setSendProgress(0);
       setCurrentStatus('Iniciando fila...');
 
-      const delaySeconds = configs.intervalo_envio_s || 9;
+      const maxDelayConfig = parseInt(configs.intervalo_envio_s) || 9;
 
       for (let i = 0; i < selectedPacientes.length; i++) {
         if (abortRef.current) {
@@ -259,6 +259,9 @@ export default function Todos() {
         setSendProgress(i + 1);
 
         if (i < selectedPacientes.length - 1 && !abortRef.current) {
+          const minDelay = 2; // Mínimo de 2 segundos para dar respiro
+          const delaySeconds = Math.floor(Math.random() * (Math.max(maxDelayConfig, minDelay) - minDelay + 1)) + minDelay;
+          
           setCurrentStatus(`Aguardando ${delaySeconds}s (Anti-Spam)...`);
           let msWaited = 0;
           const waitMs = delaySeconds * 1000;
