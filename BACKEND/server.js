@@ -16,7 +16,10 @@ const adminRoutes = require('./routes/adminRoutes');
 const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
-app.use(cors());
+app.use(cors({
+  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://aca.dmedia.com.br', 'http://aca.dmedia.com.br'],
+  credentials: true
+}));
 app.use(express.json());
 
 // Usar rotas
@@ -25,6 +28,17 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/config', authMiddleware, configRoutes);
 app.use('/api/update', authMiddleware, updateRoutes);
 app.use('/api/campanhas', authMiddleware, campanhaRoutes);
+
+// ----------------------------------------------------
+// ROTA DE STATUS DA API
+// ----------------------------------------------------
+app.get('/', (req, res) => {
+  res.json({
+    status: 'online',
+    version: '1.0.0',
+    app: 'ACA Dental Web API'
+  });
+});
 
 // ----------------------------------------------------
 // ROTA DO DASHBOARD (Visão Geral)
