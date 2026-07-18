@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Paciente {
+  id                    String    @id @default(uuid())
+  id_sDental            String    @unique
+  nome                  String
+  telefone              String?
+  
+  ultima_limpeza_data   DateTime?
+  ultima_evolucao_data  DateTime?
+  ultimo_proc           String?
+  total_evolucoes       Int       @default(0)
+  score                 Int       @default(0)
+  
+  orcamentos            Orcamento[]
+  campanhas_alvo        CampanhaAlvo[]
+}
+
+model Orcamento {
+  id                    String    @id
+  paciente_id           String
+  descricao             String?
+  status                String
+  data_orcamento        DateTime
+  valor_total           Float
+  
+  paciente              Paciente  @relation(fields: [paciente_id], references: [id])
+  tratamentos           Tratamento[]
+}
+
+model Tratamento {
+  id            Int        @id @default(autoincrement())
+  orcamento_id  String
+  nome          String
+  valor         Float
+  
+  orcamento     Orcamento  @relation(fields: [orcamento_id], references: [id], onDelete: Cascade)
+}
+
+model Campanha {
+  id                String         @id @default(uuid())
+  nome              String
+  mensagem_template String
+  status            String
+  data_inicio       DateTime       @default(now())
+  data_fim          DateTime?
+  
+  alvos             CampanhaAlvo[]
+}
+
+model CampanhaAlvo {
+  campanha_id   String
+  paciente_id   String
+  status_envio  String
+  data_envio    DateTime?
+  
+  campanha      Campanha   @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
+  paciente      Paciente   @relation(fields: [paciente_id], references: [id], onDelete: Cascade)
+  
+  @@id([campanha_id, paciente_id])
+}
+
+model Configuracao {
+  chave   String  @id
+  valor   String
+}
