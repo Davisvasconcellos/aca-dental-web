@@ -24,7 +24,7 @@ export default function Integracoes() {
   const loadData = async () => {
     try {
       const token = localStorage.getItem('aca_token');
-      const resEvo = await fetch('http://localhost:3000/api/admin/evolution', {
+      const resEvo = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/evolution`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
       if (resEvo.ok) {
@@ -44,7 +44,7 @@ export default function Integracoes() {
     setEvoStatus('verificando...');
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch('http://localhost:3000/api/admin/evolution', {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/evolution`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(evoConfig)

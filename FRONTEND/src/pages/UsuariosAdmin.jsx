@@ -46,8 +46,8 @@ export default function UsuariosAdmin() {
       const token = localStorage.getItem('aca_token');
       const headers = { 'Authorization': `Bearer ${token}` };
       const [resUsr, resOrg] = await Promise.all([
-        fetch('http://localhost:3000/api/admin/users', { headers }),
-        fetch('http://localhost:3000/api/admin/organizations', { headers })
+        fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users`, { headers }),
+        fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/organizations`, { headers })
       ]);
       if (resUsr.ok) setUsuarios(await resUsr.json());
       if (resOrg.ok) setClinicas(await resOrg.json());
@@ -72,8 +72,8 @@ export default function UsuariosAdmin() {
       const token = localStorage.getItem('aca_token');
       const isEditing = !!userForm.id;
       const url = isEditing 
-        ? `http://localhost:3000/api/admin/users/${userForm.id}` 
-        : 'http://localhost:3000/api/admin/users';
+        ? `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users/${userForm.id}` 
+        : `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users`;
 
       const res = await fetch(url, {
         method: isEditing ? 'PUT' : 'POST',
@@ -98,7 +98,7 @@ export default function UsuariosAdmin() {
     if (!window.confirm("ATENÇÃO: Deseja realmente excluir este usuário administrador?")) return;
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`http://localhost:3000/api/admin/users/${id}`, {
+      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

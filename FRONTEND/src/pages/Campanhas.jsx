@@ -21,7 +21,7 @@ export default function Campanhas() {
 
   const fetchCampanhas = async () => {
     try {
-      const res = await fetchAuth('http://localhost:3000/api/campanhas');
+      const res = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas`);
       const data = await res.json();
       setCampanhas(data);
       setLoading(false);
@@ -40,7 +40,7 @@ export default function Campanhas() {
     if (!campaignToDelete) return;
     
     try {
-      await fetchAuth(`http://localhost:3000/api/campanhas/${campaignToDelete}`, { method: 'DELETE' });
+      await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${campaignToDelete}`, { method: 'DELETE' });
       setCampanhas(campanhas.filter(c => c.id !== campaignToDelete));
       setDeleteModalOpen(false);
       setCampaignToDelete(null);
