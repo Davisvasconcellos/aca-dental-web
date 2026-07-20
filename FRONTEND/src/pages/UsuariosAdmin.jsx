@@ -46,8 +46,8 @@ export default function UsuariosAdmin() {
       const token = localStorage.getItem('aca_token');
       const headers = { 'Authorization': `Bearer ${token}` };
       const [resUsr, resOrg] = await Promise.all([
-        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users`, { headers }),
-        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations`, { headers })
+        fetch(`https://api-aca.dmedia.com.br/api/admin/users`, { headers }),
+        fetch(`https://api-aca.dmedia.com.br/api/admin/organizations`, { headers })
       ]);
       if (resUsr.ok) setUsuarios(await resUsr.json());
       if (resOrg.ok) setClinicas(await resOrg.json());
@@ -72,8 +72,8 @@ export default function UsuariosAdmin() {
       const token = localStorage.getItem('aca_token');
       const isEditing = !!userForm.id;
       const url = isEditing 
-        ? `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users/${userForm.id}` 
-        : `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users`;
+        ? `https://api-aca.dmedia.com.br/api/admin/users/${userForm.id}` 
+        : `https://api-aca.dmedia.com.br/api/admin/users`;
 
       const res = await fetch(url, {
         method: isEditing ? 'PUT' : 'POST',
@@ -98,7 +98,7 @@ export default function UsuariosAdmin() {
     if (!window.confirm("ATENÇÃO: Deseja realmente excluir este usuário administrador?")) return;
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users/${id}`, {
+      const res = await fetch(`https://api-aca.dmedia.com.br/api/admin/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

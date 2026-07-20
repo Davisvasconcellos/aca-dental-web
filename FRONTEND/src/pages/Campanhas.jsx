@@ -21,7 +21,7 @@ export default function Campanhas() {
 
   const fetchCampanhas = async () => {
     try {
-      const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`);
+      const res = await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas`);
       const data = await res.json();
       setCampanhas(data);
       setLoading(false);
@@ -40,7 +40,7 @@ export default function Campanhas() {
     if (!campaignToDelete) return;
     
     try {
-      await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignToDelete}`, { method: 'DELETE' });
+      await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${campaignToDelete}`, { method: 'DELETE' });
       setCampanhas(campanhas.filter(c => c.id !== campaignToDelete));
       setDeleteModalOpen(false);
       setCampaignToDelete(null);

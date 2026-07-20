@@ -48,8 +48,8 @@ export default function Clinicas() {
       const token = localStorage.getItem('aca_token');
       const headers = { 'Authorization': `Bearer ${token}` };
       const [resOrg, resUsr] = await Promise.all([
-        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations`, { headers }),
-        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users`, { headers })
+        fetch(`https://api-aca.dmedia.com.br/api/admin/organizations`, { headers }),
+        fetch(`https://api-aca.dmedia.com.br/api/admin/users`, { headers })
       ]);
       if (resOrg.ok) setClinicas(await resOrg.json());
       if (resUsr.ok) setUsuarios(await resUsr.json());
@@ -71,8 +71,8 @@ export default function Clinicas() {
       const token = localStorage.getItem('aca_token');
       const isEditing = !!orgForm.id;
       const url = isEditing 
-        ? `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations/${orgForm.id}` 
-        : `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations`;
+        ? `https://api-aca.dmedia.com.br/api/admin/organizations/${orgForm.id}` 
+        : `https://api-aca.dmedia.com.br/api/admin/organizations`;
 
       const res = await fetch(url, {
         method: isEditing ? 'PUT' : 'POST',
@@ -90,7 +90,7 @@ export default function Clinicas() {
       
       if (!isEditing) {
         setLoadingState('salvando_evo');
-        const evoRes = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations/${data.org.id}/create-instance`, {
+        const evoRes = await fetch(`https://api-aca.dmedia.com.br/api/admin/organizations/${data.org.id}/create-instance`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -122,7 +122,7 @@ export default function Clinicas() {
     setLoadingState('excluindo');
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations/${orgToDelete.id}`, {
+      const res = await fetch(`https://api-aca.dmedia.com.br/api/admin/organizations/${orgToDelete.id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
