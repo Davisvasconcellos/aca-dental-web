@@ -27,7 +27,10 @@ export default function Login() {
         <div style={{ textAlign: 'center', marginBottom: '30px' }}>
           <Stethoscope size={48} color="var(--accent)" style={{ marginBottom: '10px' }} />
           <h2 style={{ fontSize: '24px', margin: 0 }}>ACA <span style={{ color: 'var(--accent)' }}>Dental</span></h2>
-          <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '5px' }}>Central de Inteligência</p>
+          <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '5px', marginBottom: '5px' }}>Central de Inteligência</p>
+          <div style={{ fontSize: '10px', color: 'var(--accent)', background: 'rgba(59, 130, 246, 0.1)', padding: '4px', borderRadius: '4px', display: 'inline-block' }}>
+            API: https://api-aca.dmedia.com.br
+          </div>
         </div>
 
         {error && (
