@@ -11,7 +11,7 @@ export default function Login() {
   const { login } = useAuth();
 
   useEffect(() => {
-    fetch('https://aca-api.dmedia.com.br/')
+    fetch('${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/')
       .then(res => res.json())
       .then(data => {
         if (data.status === 'online') setApiStatus('online');
@@ -41,7 +41,7 @@ export default function Login() {
           <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '5px', marginBottom: '5px' }}>Central de Inteligência</p>
           <div style={{ display: 'flex', justifyContent: 'center', gap: '8px', marginTop: '10px' }}>
             <div style={{ fontSize: '10px', color: 'var(--accent)', background: 'rgba(59, 130, 246, 0.1)', padding: '4px 8px', borderRadius: '4px' }}>
-              API: https://aca-api.dmedia.com.br
+              API: ${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}
             </div>
             <div style={{ 
               fontSize: '10px', 

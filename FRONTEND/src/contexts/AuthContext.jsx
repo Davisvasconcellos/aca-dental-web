@@ -21,7 +21,7 @@ export function AuthProvider({ children }) {
 
   const login = async (email, senha) => {
     try {
-      const res = await fetch(`https://aca-api.dmedia.com.br/api/auth/login`, {
+      const res = await fetch(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/auth/login`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, senha })

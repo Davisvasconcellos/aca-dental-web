@@ -10,7 +10,7 @@ export default function VisaoGeral() {
 
   useEffect(() => {
     const token = localStorage.getItem('aca_token');
-    fetch(`https://aca-api.dmedia.com.br/api/dashboard`, {
+    fetch(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/dashboard`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => {
