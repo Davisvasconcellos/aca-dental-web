@@ -16,9 +16,19 @@ const adminRoutes = require('./routes/adminRoutes');
 const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
-const allowedOrigin = process.env.FRONTEND_URL || '*';
+const allowedOrigins = [
+  'http://localhost:5173',
+  'https://aca.dmedia.com.br',
+  'http://aca.dmedia.com.br',
+  'https://www.aca.dmedia.com.br',
+  'http://www.aca.dmedia.com.br'
+];
+if (process.env.FRONTEND_URL && !allowedOrigins.includes(process.env.FRONTEND_URL)) {
+  allowedOrigins.push(process.env.FRONTEND_URL);
+}
+
 app.use(cors({
-  origin: allowedOrigin === '*' ? '*' : [allowedOrigin, 'http://localhost:5173'],
+  origin: allowedOrigins,
   credentials: true
 }));
 app.use(express.json());
@@ -176,5 +186,6 @@ app.get('/health', async (req, res) => {
 // Start
 app.listen(PORT, () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
-  console.log(`🌍 Conectado ao banco: ${process.env.DATABASE_URL.split('@')[1] || 'Local'}`);
+  console.log(`🌍 Conectado ao banco: ${process.env.DATABASE_URL?.split('@')[1] || 'Local'}`);
+  console.log(`🛡️  CORS liberado para as origens:`, allowedOrigins);
 });
