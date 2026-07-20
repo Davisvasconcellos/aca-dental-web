@@ -23,7 +23,7 @@ export default function Orcamentos() {
 
   React.useEffect(() => {
     const token = localStorage.getItem('aca_token');
-    fetch(`https://api-aca.dmedia.com.br/api/orcamentos/abertos`, {
+    fetch(`https://aca-api.dmedia.com.br/api/orcamentos/abertos`, {
       headers: { 'Authorization': `Bearer ${token}` }
     })
       .then(res => res.json())

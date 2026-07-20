@@ -46,8 +46,8 @@ export default function UsuariosAdmin() {
       const token = localStorage.getItem('aca_token');
       const headers = { 'Authorization': `Bearer ${token}` };
       const [resUsr, resOrg] = await Promise.all([
-        fetch(`https://api-aca.dmedia.com.br/api/admin/users`, { headers }),
-        fetch(`https://api-aca.dmedia.com.br/api/admin/organizations`, { headers })
+        fetch(`https://aca-api.dmedia.com.br/api/admin/users`, { headers }),
+        fetch(`https://aca-api.dmedia.com.br/api/admin/organizations`, { headers })
       ]);
       if (resUsr.ok) setUsuarios(await resUsr.json());
       if (resOrg.ok) setClinicas(await resOrg.json());
@@ -72,8 +72,8 @@ export default function UsuariosAdmin() {
       const token = localStorage.getItem('aca_token');
       const isEditing = !!userForm.id;
       const url = isEditing 
-        ? `https://api-aca.dmedia.com.br/api/admin/users/${userForm.id}` 
-        : `https://api-aca.dmedia.com.br/api/admin/users`;
+        ? `https://aca-api.dmedia.com.br/api/admin/users/${userForm.id}` 
+        : `https://aca-api.dmedia.com.br/api/admin/users`;
 
       const res = await fetch(url, {
         method: isEditing ? 'PUT' : 'POST',
@@ -98,7 +98,7 @@ export default function UsuariosAdmin() {
     if (!window.confirm("ATENÇÃO: Deseja realmente excluir este usuário administrador?")) return;
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`https://api-aca.dmedia.com.br/api/admin/users/${id}`, {
+      const res = await fetch(`https://aca-api.dmedia.com.br/api/admin/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });

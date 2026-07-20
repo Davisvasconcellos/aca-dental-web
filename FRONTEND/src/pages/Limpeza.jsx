@@ -46,12 +46,12 @@ export default function Limpeza() {
   const [itemsPerPage, setItemsPerPage] = useState(25);
 
   useEffect(() => {
-    const fetchRadar = fetchAuth(`https://api-aca.dmedia.com.br/api/limpeza/radar`).then(res => res.json());
-    const fetchCampList = fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas`).then(res => res.json());
+    const fetchRadar = fetchAuth(`https://aca-api.dmedia.com.br/api/limpeza/radar`).then(res => res.json());
+    const fetchCampList = fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas`).then(res => res.json());
     
     let fetchCamp = null;
     if (urlCampaignId) {
-      fetchCamp = fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${urlCampaignId}`).then(res => res.json());
+      fetchCamp = fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas/${urlCampaignId}`).then(res => res.json());
     } else {
       // Se não há id, resetamos os estados locais (fechar campanha)
       setIsCampaignActive(false);
@@ -176,7 +176,7 @@ export default function Limpeza() {
     }
 
     try {
-      const res = await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas`, {
+      const res = await fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nome: nameVal })
@@ -184,12 +184,12 @@ export default function Limpeza() {
       const novaCamp = await res.json();
 
       if (selectVal) {
-        const resOld = await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${selectVal}`);
+        const resOld = await fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas/${selectVal}`);
         const oldCamp = await resOld.json();
         
         if (oldCamp && oldCamp.alvos && oldCamp.alvos.length > 0) {
           await Promise.all(oldCamp.alvos.map(alvo => 
-            fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${novaCamp.id}/alvo/${alvo.paciente_id}`, {
+            fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas/${novaCamp.id}/alvo/${alvo.paciente_id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ status_envio: 'PENDENTE' }) // Herdar apenas a seleção, limpar o status
@@ -214,7 +214,7 @@ export default function Limpeza() {
     }
 
     try {
-      const resCfg = await fetchAuth(`https://api-aca.dmedia.com.br/api/config`);
+      const resCfg = await fetchAuth(`https://aca-api.dmedia.com.br/api/config`);
       const configs = await resCfg.json();
       
       if (!configs.evo_url || !configs.evo_instance || !configs.evo_apikey) {
@@ -249,7 +249,7 @@ export default function Limpeza() {
         setCurrentStatus(`Enviando para ${firstName}... (${i+1}/${selectedPacientes.length})`);
         
         try {
-          const res = await fetchAuth(`https://api-aca.dmedia.com.br/api/config/testar-evolution`, {
+          const res = await fetchAuth(`https://aca-api.dmedia.com.br/api/config/testar-evolution`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -266,7 +266,7 @@ export default function Limpeza() {
             setPacientes(prev => prev.map(pt => pt.id === p.id ? { ...pt, status: '✓', selected: false } : pt));
             // Update backend
             if (campaignId) {
-              await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${campaignId}/alvo/${p.id}`, {
+              await fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas/${campaignId}/alvo/${p.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status_envio: 'ENVIADO' })
@@ -275,7 +275,7 @@ export default function Limpeza() {
           } else {
             console.error(`Erro ao enviar para ${p.nome}:`, data.msg);
             if (campaignId) {
-              await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${campaignId}/alvo/${p.id}`, {
+              await fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas/${campaignId}/alvo/${p.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status_envio: 'ERRO' })
@@ -313,7 +313,7 @@ export default function Limpeza() {
       // Finaliza a campanha no backend
       if (campaignId) {
         try {
-          await fetchAuth(`https://api-aca.dmedia.com.br/api/campanhas/${campaignId}/finalizar`, {
+          await fetchAuth(`https://aca-api.dmedia.com.br/api/campanhas/${campaignId}/finalizar`, {
             method: 'PUT'
           });
         } catch (e) {
