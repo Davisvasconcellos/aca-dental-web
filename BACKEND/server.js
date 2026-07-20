@@ -184,7 +184,7 @@ app.get('/health', async (req, res) => {
 });
 
 // Start
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
   console.log(`🚀 Servidor rodando na porta ${PORT}`);
   console.log(`🌍 Conectado ao banco: ${process.env.DATABASE_URL?.split('@')[1] || 'Local'}`);
   console.log(`🛡️  CORS liberado para as origens:`, allowedOrigins);
