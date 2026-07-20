@@ -56,9 +56,9 @@ export default function Admin() {
       const headers = { 'Authorization': `Bearer ${token}` };
 
       const [resOrg, resUsr, resEvo] = await Promise.all([
-        fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/organizations`, { headers }),
-        fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users`, { headers }),
-        fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/evolution`, { headers })
+        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations`, { headers }),
+        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users`, { headers }),
+        fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/evolution`, { headers })
       ]);
       
       if (resOrg.ok) setClinicas(await resOrg.json());
@@ -91,8 +91,8 @@ export default function Admin() {
       const token = localStorage.getItem('aca_token');
       const isEditing = !!orgForm.id;
       const url = isEditing 
-        ? `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/organizations/${orgForm.id}` 
-        : `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/organizations`;
+        ? `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations/${orgForm.id}` 
+        : `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations`;
 
       const res = await fetch(url, {
         method: isEditing ? 'PUT' : 'POST',
@@ -110,7 +110,7 @@ export default function Admin() {
       
       if (!isEditing) {
         setLoadingState('salvando_evo');
-        const evoRes = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/organizations/${data.org.id}/create-instance`, {
+        const evoRes = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations/${data.org.id}/create-instance`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${token}` }
         });
@@ -137,7 +137,7 @@ export default function Admin() {
     if (!window.confirm("ATENÇÃO: Excluir esta clínica apagará TODOS os dados e usuários vinculados a ela. Tem certeza?")) return;
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/organizations/${id}`, {
+      const res = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/organizations/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -176,8 +176,8 @@ export default function Admin() {
       const token = localStorage.getItem('aca_token');
       const isEditing = !!userForm.id;
       const url = isEditing 
-        ? `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users/${userForm.id}` 
-        : `${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users`;
+        ? `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users/${userForm.id}` 
+        : `${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users`;
 
       const res = await fetch(url, {
         method: isEditing ? 'PUT' : 'POST',
@@ -202,7 +202,7 @@ export default function Admin() {
     if (!window.confirm("ATENÇÃO: Deseja realmente excluir este usuário administrador?")) return;
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/users/${id}`, {
+      const res = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/users/${id}`, {
         method: 'DELETE',
         headers: { 'Authorization': `Bearer ${token}` }
       });
@@ -224,7 +224,7 @@ export default function Admin() {
     setEvoStatus('verificando...');
     try {
       const token = localStorage.getItem('aca_token');
-      const res = await fetch(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/admin/evolution`, {
+      const res = await fetch(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/admin/evolution`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
         body: JSON.stringify(evoConfig)

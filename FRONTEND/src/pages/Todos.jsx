@@ -43,12 +43,12 @@ export default function Todos() {
   const [itemsPerPage, setItemsPerPage] = useState(25);
 
   useEffect(() => {
-    const fetchPacientes = fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/pacientes`).then(res => res.json());
-    const fetchCampList = fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas`).then(res => res.json());
+    const fetchPacientes = fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/pacientes`).then(res => res.json());
+    const fetchCampList = fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`).then(res => res.json());
     
     let fetchCamp = null;
     if (urlCampaignId) {
-      fetchCamp = fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${urlCampaignId}`).then(res => res.json());
+      fetchCamp = fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${urlCampaignId}`).then(res => res.json());
     } else {
       setIsCampaignActive(false);
       setCampaignName('');
@@ -147,7 +147,7 @@ export default function Todos() {
     }
 
     try {
-      const res = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas`, {
+      const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ nome: nameVal })
@@ -155,12 +155,12 @@ export default function Todos() {
       const novaCamp = await res.json();
 
       if (selectVal) {
-        const resOld = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${selectVal}`);
+        const resOld = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${selectVal}`);
         const oldCamp = await resOld.json();
         
         if (oldCamp && oldCamp.alvos && oldCamp.alvos.length > 0) {
           await Promise.all(oldCamp.alvos.map(alvo => 
-            fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${novaCamp.id}/alvo/${alvo.paciente_id}`, {
+            fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${novaCamp.id}/alvo/${alvo.paciente_id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ status_envio: 'PENDENTE' })
@@ -185,7 +185,7 @@ export default function Todos() {
     }
 
     try {
-      const resCfg = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config`);
+      const resCfg = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config`);
       const configs = await resCfg.json();
       
       if (!configs.evo_url || !configs.evo_instance || !configs.evo_apikey) {
@@ -220,7 +220,7 @@ export default function Todos() {
         setCurrentStatus(`Enviando para ${firstName}... (${i+1}/${selectedPacientes.length})`);
         
         try {
-          const res = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config/testar-evolution`, {
+          const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-evolution`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -236,7 +236,7 @@ export default function Todos() {
           if (data.ok) {
             setPacientes(prev => prev.map(pt => pt.id === p.id ? { ...pt, status: '✓', selected: false } : pt));
             if (campaignId) {
-              await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${campaignId}/alvo/${p.id}`, {
+              await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/alvo/${p.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status_envio: 'ENVIADO' })
@@ -245,7 +245,7 @@ export default function Todos() {
           } else {
             console.error(`Erro ao enviar para ${p.nome}:`, data.msg);
             if (campaignId) {
-              await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${campaignId}/alvo/${p.id}`, {
+              await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/alvo/${p.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ status_envio: 'ERRO' })
@@ -282,7 +282,7 @@ export default function Todos() {
       
       if (campaignId) {
         try {
-          await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/campanhas/${campaignId}/finalizar`, { method: 'PUT' });
+          await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/finalizar`, { method: 'PUT' });
         } catch (e) {
           console.error("Erro ao finalizar campanha no backend:", e);
         }

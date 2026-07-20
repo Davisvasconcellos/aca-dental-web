@@ -55,7 +55,7 @@ export default function Configuracoes() {
   const [lastUpdated, setLastUpdated] = useState({ users: '—', orc: '—', evo: '—' });
 
   useEffect(() => {
-    fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config`)
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config`)
       .then(res => res.json())
       .then(data => {
         setConfigs(prev => ({ ...prev, ...data }));
@@ -82,7 +82,7 @@ export default function Configuracoes() {
   }, []);
 
   const checkRealEvoStatus = () => {
-    fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config/evolution-status`)
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config/evolution-status`)
       .then(res => res.json())
       .then(data => {
         if (data.ok) {
@@ -116,7 +116,7 @@ export default function Configuracoes() {
   };
 
   const handleSaveAll = () => {
-    fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config`, {
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(configs)
@@ -140,7 +140,7 @@ export default function Configuracoes() {
       return;
     }
     
-    fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config`, {
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: t })
@@ -160,7 +160,7 @@ export default function Configuracoes() {
 
   const handleTestCurrentToken = () => {
     showStatus('Testando token atual salvo...', '');
-    fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config/testar-token`, {
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({})
@@ -176,7 +176,7 @@ export default function Configuracoes() {
   const handleTestNewToken = () => {
     const t = tokenInput.trim();
     showStatus('Testando...', '');
-    fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config/testar-token`, {
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ token: t })
@@ -193,7 +193,7 @@ export default function Configuracoes() {
     setQrBase64('');
     
     try {
-      const res = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config/evolution-qr`);
+      const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config/evolution-qr`);
       const data = await res.json();
       
       if (data.ok && data.base64) {
@@ -213,7 +213,7 @@ export default function Configuracoes() {
       setUpdateProgress(p => ({ ...p, [key]: { pct: 0, text: 'Conectando...' } }));
       setUpdateLog(p => ({ ...p, [key]: 'Iniciando...' }));
 
-      const eventSource = new EventSource(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/update/${endpoint}`);
+      const eventSource = new EventSource(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/update/${endpoint}`);
 
       eventSource.addEventListener('start', (e) => {
         const data = JSON.parse(e.data);
@@ -242,7 +242,7 @@ export default function Configuracoes() {
         setLastUpdated(p => ({ ...p, [key]: timestampStr }));
 
         // Salvar a data no banco em background
-        fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config`, {
+        fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ [`last_update_${key}`]: timestampStr })
@@ -457,7 +457,7 @@ export default function Configuracoes() {
                               const phone = document.getElementById('test_evo_phone').value;
                               const message = document.getElementById('test_evo_msg').value;
                               
-                              const res = await fetchAuth(`${import.meta.env.VITE_API_URL || "http://localhost:3000"}/api/config/testar-evolution`, {
+                              const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://api-aca.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-evolution`, {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
                                 body: JSON.stringify({
