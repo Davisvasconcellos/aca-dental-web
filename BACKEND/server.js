@@ -16,10 +16,7 @@ const adminRoutes = require('./routes/adminRoutes');
 const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
-app.use(cors({
-  origin: ['http://localhost:5173', 'http://localhost:3000', 'https://aca.dmedia.com.br', 'http://aca.dmedia.com.br'],
-  credentials: true
-}));
+app.use(cors());
 app.use(express.json());
 
 // Usar rotas
