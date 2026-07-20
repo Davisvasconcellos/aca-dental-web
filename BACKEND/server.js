@@ -18,6 +18,7 @@ const { authMiddleware } = require('./middleware/authMiddleware');
 // Middlewares
 const allowedOrigins = [
   'http://localhost:5173',
+  'http://localhost:3000',
   'https://aca.dmedia.com.br',
   'http://aca.dmedia.com.br',
   'https://www.aca.dmedia.com.br',
