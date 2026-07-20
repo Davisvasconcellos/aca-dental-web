@@ -16,7 +16,11 @@ const adminRoutes = require('./routes/adminRoutes');
 const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
-app.use(cors());
+const allowedOrigin = process.env.FRONTEND_URL || '*';
+app.use(cors({
+  origin: allowedOrigin === '*' ? '*' : [allowedOrigin, 'http://localhost:5173'],
+  credentials: true
+}));
 app.use(express.json());
 
 // Usar rotas
