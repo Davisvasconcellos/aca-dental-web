@@ -87,6 +87,15 @@ model Configuracao {
   @@unique([chave, organization_id])
 }
 
+model MensagemTemplate {
+  id              String       @id @default(uuid())
+  titulo          String
+  texto           String
+  organization_id String
+  
+  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+}
+
 model Organization {
   id           String    @id @default(uuid())
   nome         String
@@ -98,6 +107,7 @@ model Organization {
   orcamentos   Orcamento[]
   campanhas    Campanha[]
   configuracoes Configuracao[]
+  mensagens    MensagemTemplate[]
 }
 
 model Usuario {

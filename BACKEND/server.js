@@ -173,6 +173,77 @@ app.get('/api/orcamentos/abertos', authMiddleware, async (req, res) => {
 });
 
 // ----------------------------------------------------
+// ROTAS DE MENSAGENS (TEMPLATES)
+// ----------------------------------------------------
+app.get('/api/mensagens', authMiddleware, async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const mensagens = await prisma.mensagemTemplate.findMany({
+      where: { organization_id: orgId },
+      orderBy: { titulo: 'asc' }
+    });
+    res.json(mensagens);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao buscar mensagens' });
+  }
+});
+
+app.post('/api/mensagens', authMiddleware, async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const { titulo, texto } = req.body;
+    if (!titulo || !texto) return res.status(400).json({ error: 'Título e texto obrigatórios' });
+    
+    const novaMensagem = await prisma.mensagemTemplate.create({
+      data: { titulo, texto, organization_id: orgId }
+    });
+    res.json({ ok: true, mensagem: novaMensagem });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao criar mensagem' });
+  }
+});
+
+app.put('/api/mensagens/:id', authMiddleware, async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const { id } = req.params;
+    const { titulo, texto } = req.body;
+    
+    // Check ownership
+    const exists = await prisma.mensagemTemplate.findFirst({ where: { id, organization_id: orgId } });
+    if (!exists) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    
+    const atualizada = await prisma.mensagemTemplate.update({
+      where: { id },
+      data: { titulo, texto }
+    });
+    res.json({ ok: true, mensagem: atualizada });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao atualizar mensagem' });
+  }
+});
+
+app.delete('/api/mensagens/:id', authMiddleware, async (req, res) => {
+  try {
+    const orgId = req.user.organization_id;
+    const { id } = req.params;
+    
+    // Check ownership
+    const exists = await prisma.mensagemTemplate.findFirst({ where: { id, organization_id: orgId } });
+    if (!exists) return res.status(404).json({ error: 'Mensagem não encontrada' });
+    
+    await prisma.mensagemTemplate.delete({ where: { id } });
+    res.json({ ok: true });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: 'Erro ao excluir mensagem' });
+  }
+});
+
+// ----------------------------------------------------
 // HEALTHCHECK (Util para o Dokploy)
 // ----------------------------------------------------
 app.get('/health', async (req, res) => {

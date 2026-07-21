@@ -20,6 +20,7 @@ export default function Todos() {
   const [campaignName, setCampaignName] = useState('');
   const [campaignId, setCampaignId] = useState(urlCampaignId || null);
   const [allCampanhas, setAllCampanhas] = useState([]);
+  const [allTemplates, setAllTemplates] = useState([]);
   const [isValidated, setIsValidated] = useState(false);
   
   // Estados da Fila de Envio (Evolution)
@@ -45,6 +46,7 @@ export default function Todos() {
   useEffect(() => {
     const fetchPacientes = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/pacientes`).then(res => res.json());
     const fetchCampList = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`).then(res => res.json());
+    const fetchTemplates = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`).then(res => res.json());
     
     let fetchCamp = null;
     if (urlCampaignId) {
@@ -56,9 +58,10 @@ export default function Todos() {
       setIsValidated(false);
     }
 
-    Promise.all([fetchPacientes, fetchCampList, fetchCamp])
-      .then(([pacientesData, campList, campData]) => {
+    Promise.all([fetchPacientes, fetchCampList, fetchTemplates, fetchCamp])
+      .then(([pacientesData, campList, templatesData, campData]) => {
         if (Array.isArray(campList)) setAllCampanhas(campList);
+        if (Array.isArray(templatesData)) setAllTemplates(templatesData);
         
         const alvosMap = {};
         if (campData && !campData.error) {
@@ -140,17 +143,33 @@ export default function Todos() {
     e.preventDefault();
     const selectVal = document.getElementById('m-camp-select')?.value;
     const nameVal = document.getElementById('m-camp-nome')?.value;
+    const msgText = document.getElementById('m-camp-msg')?.value;
+    const saveTemplate = document.getElementById('m-camp-save-template')?.checked;
 
     if (!nameVal) {
       alert("Informe o nome da nova campanha.");
       return;
+    }
+    
+    if (!msgText) {
+      alert("A mensagem da campanha não pode ficar em branco.");
+      return;
+    }
+
+    // Save as new template if requested
+    if (saveTemplate) {
+      await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ titulo: nameVal, texto: msgText })
+      });
     }
 
     try {
       const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nameVal })
+        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText })
       });
       const novaCamp = await res.json();
 
@@ -193,9 +212,14 @@ export default function Todos() {
         return;
       }
       
-      const template = configs.mensagem_template;
+      let template = '';
+      const currentCamp = allCampanhas.find(c => c.id === campaignId);
+      if (currentCamp && currentCamp.mensagem_template) {
+        template = currentCamp.mensagem_template;
+      }
+      
       if (!template) {
-        alert("Template de mensagem padrão não está configurado.");
+        alert("Esta campanha não possui uma mensagem configurada.");
         return;
       }
 
@@ -371,7 +395,9 @@ export default function Todos() {
                 <>
                   <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
                     Selecione os pacientes na tabela abaixo e valide a fila. <br/>
-                    <strong>{selectedCount}</strong> selecionados.
+                    <div style={{ display: 'inline-block', background: 'var(--accent)', color: '#fff', padding: '4px 10px', borderRadius: '12px', marginTop: '8px', fontSize: '14px', fontWeight: 'bold' }}>
+                      {selectedCount} contatos selecionados
+                    </div>
                   </div>
                   <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={selectedCount === 0} onClick={() => setIsValidated(true)}>
                     ✅ Validar {selectedCount} pacientes
@@ -435,7 +461,6 @@ export default function Todos() {
           <button className={`sort-btn ${sortField === 'limpeza' ? 'active' : ''}`} onClick={() => handleSort('limpeza')}>Limpeza</button>
           
           <div className="ml-auto" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <button className="btn btn-ghost" onClick={() => setIsMsgModalOpen(true)}>✉️ Mensagem</button>
           </div>
         </div>
         <table>
@@ -511,7 +536,39 @@ export default function Todos() {
                 
                 <div style={{ marginTop: '20px', marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>
-                    2. CARREGAR PACIENTES DE CAMPANHA EXISTENTE (OPCIONAL)
+                    2. MENSAGEM A SER ENVIADA
+                  </label>
+                  <select 
+                    id="m-camp-template-select" 
+                    className="cfg-input" 
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', marginBottom: '10px' }}
+                    defaultValue=""
+                    onChange={(e) => {
+                      const t = allTemplates.find(x => x.id === e.target.value);
+                      if(t) {
+                        document.getElementById('m-camp-msg').value = t.texto;
+                      }
+                    }}
+                  >
+                    <option value="" disabled>Selecionar um template existente (Opcional)</option>
+                    {allTemplates.map(t => <option key={t.id} value={t.id}>{t.titulo}</option>)}
+                  </select>
+                  <textarea 
+                    id="m-camp-msg" 
+                    className="cfg-input" 
+                    rows="4" 
+                    placeholder="Escreva a mensagem aqui..." 
+                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical' }}
+                  ></textarea>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
+                    <input type="checkbox" id="m-camp-save-template" />
+                    <label htmlFor="m-camp-save-template" style={{ fontSize: '12px', color: 'var(--muted)', cursor: 'pointer', margin: 0 }}>Salvar este texto como novo template</label>
+                  </div>
+                </div>
+                
+                <div style={{ marginTop: '20px', marginBottom: '16px' }}>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>
+                    3. CARREGAR PACIENTES DE CAMPANHA EXISTENTE (OPCIONAL)
                   </label>
                   <select id="m-camp-select" className="cfg-input" style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} defaultValue="">
                     <option value="">(Iniciar do zero)</option>
@@ -522,7 +579,7 @@ export default function Todos() {
               
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
                 <button type="button" className="btn btn-ghost" onClick={() => setIsCampModalOpen(false)}>Cancelar</button>
-                <button type="submit" className="btn btn-primary">Continuar</button>
+                <button type="submit" className="btn btn-primary">Começar Campanha</button>
               </div>
             </form>
         </div>

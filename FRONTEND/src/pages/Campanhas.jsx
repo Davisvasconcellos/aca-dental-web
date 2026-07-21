@@ -128,8 +128,8 @@ export default function Campanhas() {
                 </div>
                 
                 <div style={{ marginTop: '20px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)', textAlign: 'center' }}>
-                    {c.status === 'ATIVA' ? 'Execução em andamento...' : 'Envios finalizados.'}
+                  <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                    {c.mensagem_template || <span style={{ color: 'var(--muted)', fontWeight: 'normal' }}>Nenhuma mensagem configurada.</span>}
                   </div>
                 </div>
               </div>

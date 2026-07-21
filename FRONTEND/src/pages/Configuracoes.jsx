@@ -37,6 +37,9 @@ export default function Configuracoes() {
   });
 
   const [tokenInput, setTokenInput] = useState('');
+  const [mensagensList, setMensagensList] = useState([]);
+  const [showMsgModal, setShowMsgModal] = useState(false);
+  const [editingMsg, setEditingMsg] = useState({ id: '', titulo: '', texto: '' });
   
   // Real instance status
   const [realEvoStatus, setRealEvoStatus] = useState('Verificando...');
@@ -54,31 +57,37 @@ export default function Configuracoes() {
   const [updateProgress, setUpdateProgress] = useState({ users: { pct: 0, text: '' }, orc: { pct: 0, text: '' }, evo: { pct: 0, text: '' } });
   const [lastUpdated, setLastUpdated] = useState({ users: '—', orc: '—', evo: '—' });
 
-  useEffect(() => {
-    fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config`)
-      .then(res => res.json())
-      .then(data => {
-        setConfigs(prev => ({ ...prev, ...data }));
+  const fetchData = async () => {
+    try {
+      const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config`);
+      const data = await res.json();
+      setConfigs(prev => ({ ...prev, ...data }));
         
-        // Initialize last updated from DB
-        setLastUpdated({
-          users: data.last_update_users || '',
-          patients: data.last_update_patients || '',
-          metrics: data.last_update_metrics || '',
-          budgets: data.last_update_budgets || ''
-        });
-
-        if (data.evo_instance && data.evo_apikey) {
-          checkRealEvoStatus();
-        } else {
-          setRealEvoStatus('Não configurada');
-        }
-        setLoadingConfig(false);
-      })
-      .catch(err => {
-        console.error("Erro ao carregar configurações:", err);
-        setLoadingConfig(false);
+      setLastUpdated({
+        users: data.last_update_users || '',
+        patients: data.last_update_patients || '',
+        metrics: data.last_update_metrics || '',
+        budgets: data.last_update_budgets || ''
       });
+
+      if (data.evo_instance && data.evo_apikey) {
+        checkRealEvoStatus();
+      } else {
+        setRealEvoStatus('Não configurada');
+      }
+      
+      const resMsg = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`);
+      if (resMsg.ok) setMensagensList(await resMsg.json());
+      
+      setLoadingConfig(false);
+    } catch (err) {
+      console.error("Erro ao carregar configurações:", err);
+      setLoadingConfig(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchData();
   }, []);
 
   const checkRealEvoStatus = () => {
@@ -158,6 +167,38 @@ export default function Configuracoes() {
       .catch(() => showStatus('Servidor offline', 'err'));
   };
 
+  const handleSaveMsg = () => {
+    if(!editingMsg.titulo || !editingMsg.texto) return showStatus('Preencha título e texto', 'err');
+    const url = editingMsg.id 
+      ? `${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens/${editingMsg.id}` 
+      : `${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`;
+    const method = editingMsg.id ? 'PUT' : 'POST';
+    
+    fetchAuth(url, {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ titulo: editingMsg.titulo, texto: editingMsg.texto })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if(data.ok) {
+          showStatus('✅ Template salvo!', 'ok');
+          setShowMsgModal(false);
+          fetchData();
+        } else showStatus('Erro ao salvar', 'err');
+      })
+      .catch(() => showStatus('Servidor offline', 'err'));
+  };
+
+  const handleDeleteMsg = (id) => {
+    if(!window.confirm('Excluir este template?')) return;
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens/${id}`, { method: 'DELETE' })
+      .then(res => res.json())
+      .then(data => {
+        if(data.ok) { showStatus('✅ Excluído', 'ok'); fetchData(); }
+      });
+  };
+
   const handleTestCurrentToken = () => {
     showStatus('Testando token atual salvo...', '');
     fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-token`, {
@@ -232,16 +273,13 @@ export default function Configuracoes() {
         const data = JSON.parse(e.data);
         setUpdateLog(p => ({ ...p, [key]: `✅ ${data.msg}` }));
         
-        // Mantém a contagem 999/999 visível no final
         const finalCount = data.processados || data.total || 0;
         setUpdateProgress(p => ({ ...p, [key]: { pct: 100, text: `${finalCount} / ${finalCount} (Concluído)` } }));
         
-        // Define a última atualização
         const now = new Date();
         const timestampStr = now.toLocaleDateString() + ' às ' + now.toLocaleTimeString();
         setLastUpdated(p => ({ ...p, [key]: timestampStr }));
 
-        // Salvar a data no banco em background
         fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -256,7 +294,7 @@ export default function Configuracoes() {
         console.error("SSE Error", e);
         setUpdateLog(p => ({ ...p, [key]: `❌ Erro na conexão com o servidor.` }));
         eventSource.close();
-        resolve(false); // Resolvemos em vez de rejeitar para não quebrar a cadeia no Atualizar Tudo
+        resolve(false);
       };
     });
   };
@@ -370,7 +408,6 @@ export default function Configuracoes() {
 
       {activeTab === 'wa' && (
         <>
-          {/* TOPO: Título e Botão de Salvar Separados */}
           <div className="cfg-card" style={{ marginBottom: '20px' }}>
             <div className="cfg-pane active" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 24px' }}>
               <h4 style={{ margin: 0 }}>💬 Configurações do WhatsApp Automático</h4>
@@ -378,10 +415,8 @@ export default function Configuracoes() {
             </div>
           </div>
 
-          {/* SESSÃO: API WHATSAPP */}
           <div className="cfg-card">
             <div className="cfg-pane active">
-              {/* EVOLUTION API SECTION */}
               {!isMaster && (
                 <div style={{ marginBottom: '30px' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -416,7 +451,6 @@ export default function Configuracoes() {
                   </div>
                 </div>
 
-                {/* Bloco de Teste */}
                 <div style={{ marginTop: '20px', padding: '15px', background: 'var(--bg)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
                   <div 
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
@@ -493,7 +527,7 @@ export default function Configuracoes() {
               </div>
             )}
           </div>
-        </div>
+          </div>
 
           <div className="cfg-card">
             <div className="cfg-pane active">
@@ -501,15 +535,42 @@ export default function Configuracoes() {
               
               <div className="cfg-grid-two">
                 <div className="modal-section" style={{ gridColumn: '1 / -1' }}>
-                  <label>Template de Mensagem Padrão</label>
-                  <textarea 
-                    name="mensagem_template"
-                    value={configs.mensagem_template || ''} 
-                    onChange={handleChange}
-                    placeholder="Olá <%first_name%>! Tudo bem?..."
-                  ></textarea>
-                  <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '4px' }}>
-                    Use <code>&lt;%first_name%&gt;</code> para inserir o primeiro nome do paciente.
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
+                    <label style={{ margin: 0 }}>Templates Salvos</label>
+                    <button 
+                      className="btn btn-primary" 
+                      onClick={() => { setEditingMsg({ id: '', titulo: '', texto: '' }); setShowMsgModal(true); }}
+                      style={{ fontSize: '12px', padding: '6px 12px' }}
+                    >
+                      + Novo Template
+                    </button>
+                  </div>
+                  
+                  {mensagensList.length === 0 ? (
+                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--muted)', background: 'var(--bg)', borderRadius: '8px' }}>
+                      Nenhum template de mensagem cadastrado.
+                    </div>
+                  ) : (
+                    <div style={{ display: 'grid', gap: '10px' }}>
+                      {mensagensList.map(msg => (
+                        <div key={msg.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                          <div style={{ flex: 1, marginRight: '15px' }}>
+                            <h5 style={{ margin: '0 0 4px 0', fontSize: '14px', color: 'var(--fg)' }}>{msg.titulo}</h5>
+                            <div style={{ fontSize: '12px', color: 'var(--muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '400px' }}>
+                              {msg.texto}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button className="btn btn-ghost" onClick={() => { setEditingMsg(msg); setShowMsgModal(true); }} style={{ padding: '6px 10px', fontSize: '12px' }}>✏️ Editar</button>
+                            <button className="btn btn-ghost" onClick={() => handleDeleteMsg(msg.id)} style={{ padding: '6px 10px', fontSize: '12px', color: 'var(--red)' }}>🗑️</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  
+                  <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '8px' }}>
+                    Variáveis permitidas: <code>&lt;%first_name%&gt;</code> para inserir o primeiro nome do paciente.
                   </div>
                 </div>
 
@@ -716,6 +777,47 @@ export default function Configuracoes() {
           
           <div style={{ display: 'flex', justifyContent: 'center' }}>
             <button className="btn btn-primary" onClick={() => setShowQrModal(false)}>Fechar</button>
+          </div>
+        </div>
+      </div>
+
+      {/* Modal Mensagem */}
+      <div className={`overlay ${showMsgModal ? 'show' : ''}`}>
+        <div className="modal" style={{ width: '500px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+            <h3 style={{ margin: 0 }}>{editingMsg.id ? '✏️ Editar Template' : '➕ Novo Template'}</h3>
+            <button className="btn btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowMsgModal(false)}>✕</button>
+          </div>
+          <div>
+            <div className="modal-section" style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>TÍTULO (Apenas para identificação)</label>
+              <input 
+                type="text" 
+                value={editingMsg.titulo} 
+                onChange={e => setEditingMsg(p => ({ ...p, titulo: e.target.value }))}
+                placeholder="Ex: Campanha de Limpeza Maio" 
+                className="cfg-input"
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
+              />
+            </div>
+            <div className="modal-section" style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>TEXTO DA MENSAGEM</label>
+              <textarea 
+                rows="6"
+                value={editingMsg.texto} 
+                onChange={e => setEditingMsg(p => ({ ...p, texto: e.target.value }))}
+                placeholder="Olá <%first_name%>! Tudo bem?..."
+                className="cfg-input"
+                style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical' }}
+              ></textarea>
+              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                Use <code>&lt;%first_name%&gt;</code> para personalizar com o nome do paciente.
+              </div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>
+            <button className="btn btn-ghost" onClick={() => setShowMsgModal(false)}>Cancelar</button>
+            <button className="btn btn-primary" onClick={handleSaveMsg}>Salvar Template</button>
           </div>
         </div>
       </div>
