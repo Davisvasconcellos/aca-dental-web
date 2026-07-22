@@ -13,6 +13,9 @@ export default function Campanhas() {
   const [deleteModalOpen, setDeleteModalOpen] = useState(false);
   const [campaignToDelete, setCampaignToDelete] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 12; // 12 cards por página
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -80,62 +83,94 @@ export default function Campanhas() {
           <h2 style={{ fontSize: '20px', fontWeight: '700', marginBottom: '4px' }}>Histórico de Campanhas</h2>
           <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Acompanhe os envios em lote e recarregue campanhas anteriores.</div>
         </div>
+        <div>
+          <input 
+            type="text" 
+            placeholder="🔍 Buscar campanha..." 
+            className="cfg-input" 
+            value={search}
+            onChange={e => { setSearch(e.target.value); setCurrentPage(1); }}
+            style={{ width: '250px', padding: '8px 12px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }}
+          />
+        </div>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: '16px' }}>
-        {campanhas.length === 0 ? (
-          <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: 'var(--muted)', background: 'var(--s2)', borderRadius: '12px', border: '1px dashed var(--border)' }}>
-            Nenhuma campanha encontrada no histórico.
-          </div>
-        ) : (
-          campanhas.map(c => {
-            const date = new Date(c.data_inicio).toLocaleString('pt-BR');
-            const progressPct = c.total_alvos > 0 ? Math.round((c.enviados / c.total_alvos) * 100) : 0;
-            
+        {(() => {
+          const filtered = campanhas.filter(c => c.nome.toLowerCase().includes(search.toLowerCase()));
+          const totalPages = Math.ceil(filtered.length / itemsPerPage);
+          const currentData = filtered.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage);
+          
+          if (filtered.length === 0) {
             return (
-              <div key={c.id} className="cfg-card" style={{ display: 'flex', flexDirection: 'column', padding: '20px', borderRadius: '12px', background: 'var(--bg)', border: '1px solid var(--border)', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                    <div style={{ display: 'inline-block' }}>
-                      {getStatusBadge(c.status)}
-                    </div>
-                    <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text)', margin: 0 }}>{c.nome}</h3>
-                    <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Criada em: {date}</div>
-                  </div>
-                  <button 
-                    className="btn btn-ghost" 
-                    style={{ padding: '4px', fontSize: '16px', minWidth: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', opacity: 0.7 }} 
-                    title="Excluir Campanha"
-                    onClick={() => handleDelete(c.id)}
-                  >
-                    🗑️
-                  </button>
-                </div>
-                
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontSize: '12px', color: 'var(--text)', marginBottom: '6px', fontWeight: '500' }}>
-                    Progresso de Envio
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
-                    <div style={{ flex: 1, height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
-                      <div style={{ width: `${progressPct}%`, height: '100%', background: progressPct === 100 ? 'var(--green)' : 'var(--accent)', transition: 'width 0.3s ease' }}></div>
-                    </div>
-                    <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{progressPct}%</span>
-                  </div>
-                  <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
-                    <strong>{c.enviados}</strong> enviados de um total de <strong>{c.total_alvos}</strong>
-                  </div>
-                </div>
-                
-                <div style={{ marginTop: '20px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
-                  <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
-                    {c.mensagem_template || <span style={{ color: 'var(--muted)', fontWeight: 'normal' }}>Nenhuma mensagem configurada.</span>}
-                  </div>
-                </div>
+              <div style={{ gridColumn: '1 / -1', textAlign: 'center', padding: '40px', color: 'var(--muted)', background: 'var(--s2)', borderRadius: '12px', border: '1px dashed var(--border)' }}>
+                Nenhuma campanha encontrada no histórico.
               </div>
             );
-          })
-        )}
+          }
+          
+          return (
+            <>
+              {currentData.map(c => {
+                const date = new Date(c.data_inicio).toLocaleString('pt-BR');
+                const progressPct = c.total_alvos > 0 ? Math.round((c.enviados / c.total_alvos) * 100) : 0;
+                
+                return (
+                  <div key={c.id} className="cfg-card" onClick={() => navigate(`/campanhas/${c.id}`)} style={{ cursor: 'pointer', display: 'flex', flexDirection: 'column', padding: '20px', borderRadius: '12px', background: 'var(--bg)', border: '1px solid var(--border)', boxShadow: '0 4px 12px rgba(0,0,0,0.03)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                        <div style={{ display: 'inline-block' }}>
+                          {getStatusBadge(c.status)}
+                        </div>
+                        <h3 style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text)', margin: 0 }}>{c.nome}</h3>
+                        <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Criada em: {date}</div>
+                      </div>
+                      <button 
+                        className="btn btn-ghost" 
+                        style={{ padding: '4px', fontSize: '16px', minWidth: 'auto', background: 'transparent', border: 'none', cursor: 'pointer', opacity: 0.7 }} 
+                        title="Excluir Campanha"
+                        onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }}
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                    
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: '12px', color: 'var(--text)', marginBottom: '6px', fontWeight: '500' }}>
+                        Progresso de Envio
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '16px' }}>
+                        <div style={{ flex: 1, height: '8px', background: 'var(--border)', borderRadius: '4px', overflow: 'hidden' }}>
+                          <div style={{ width: `${progressPct}%`, height: '100%', background: progressPct === 100 ? 'var(--green)' : 'var(--accent)', transition: 'width 0.3s ease' }}></div>
+                        </div>
+                        <span style={{ fontSize: '12px', fontWeight: 'bold' }}>{progressPct}%</span>
+                      </div>
+                      <div style={{ fontSize: '11px', color: 'var(--muted)' }}>
+                        <strong>{c.enviados}</strong> enviados | <strong>{c.respondidos || 0}</strong> respondidos | Total: <strong>{c.total_alvos}</strong>
+                      </div>
+                    </div>
+                    
+                    <div style={{ marginTop: '20px', borderTop: '1px solid var(--border)', paddingTop: '16px' }}>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text)', lineHeight: '1.5', whiteSpace: 'pre-wrap' }}>
+                        {c.mensagem_template || <span style={{ color: 'var(--muted)', fontWeight: 'normal' }}>Nenhuma mensagem configurada.</span>}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+              {totalPages > 1 && (
+                <div style={{ gridColumn: '1 / -1', display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 0', borderTop: '1px solid var(--border)' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--muted)' }}>Mostrando {currentData.length} de {filtered.length}</span>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button className="btn btn-ghost" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>← Ant.</button>
+                    <span style={{ display: 'flex', alignItems: 'center', fontSize: '13px', fontWeight: 'bold' }}>{currentPage} / {totalPages}</span>
+                    <button className="btn btn-ghost" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => p + 1)}>Próx. →</button>
+                  </div>
+                </div>
+              )}
+            </>
+          );
+        })()}
       </div>
 
       {/* Modal de Confirmação de Exclusão */}

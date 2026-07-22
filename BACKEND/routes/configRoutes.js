@@ -87,7 +87,7 @@ router.post('/testar-token', async (req, res) => {
 // Testar Evolution API
 router.post('/testar-evolution', async (req, res) => {
   try {
-    const { url, instance, apikey, phone, message } = req.body;
+    const { url, instance, apikey, phone, message, botoes } = req.body;
     
     if (!url || !instance || !apikey || !phone || !message) {
       return res.json({ ok: false, msg: 'Preencha todos os campos da Evolution API e do teste.' });
@@ -99,17 +99,29 @@ router.post('/testar-evolution', async (req, res) => {
       cleanPhone = '55' + cleanPhone;
     }
 
-    // Montar URL da API
-    const apiUrl = `${url.replace(/\/$/, '')}/message/sendText/${instance}`;
-    
-    const payload = {
+    // Verifica se existem botões para usar InteractiveMessage
+    let apiUrl = `${url.replace(/\/$/, '')}/message/sendText/${instance}`;
+    let payload = {
       number: cleanPhone,
-      options: {
-        delay: 1000,
-        presence: "composing"
-      },
+      options: { delay: 1000, presence: "composing" },
       text: message
     };
+
+    if (botoes && Array.isArray(botoes) && botoes.length > 0) {
+      apiUrl = `${url.replace(/\/$/, '')}/message/sendButtons/${instance}`;
+      payload = {
+        number: cleanPhone,
+        options: { delay: 1000, presence: "composing" },
+        title: "Mensagem da Clínica",
+        description: message,
+        footer: "Selecione uma opção abaixo:",
+        buttons: botoes.map(b => ({
+          type: "reply",
+          displayText: b.title,
+          id: b.id || `btn_${Date.now()}`
+        }))
+      };
+    }
 
     console.log(`[EVOLUTION TEST] Sending to: ${apiUrl}`);
     console.log(`[EVOLUTION TEST] Payload:`, payload);

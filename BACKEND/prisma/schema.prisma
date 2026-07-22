@@ -55,6 +55,7 @@ model Campanha {
   id                String         @id @default(uuid())
   nome              String
   mensagem_template String
+  botoes            String?
   status            String
   organization_id   String
   data_inicio       DateTime       @default(now())
@@ -69,6 +70,8 @@ model CampanhaAlvo {
   paciente_id   String
   status_envio  String
   data_envio    DateTime?
+  resposta_texto String?
+  data_resposta  DateTime?
   
   campanha      Campanha   @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
   paciente      Paciente   @relation(fields: [paciente_id], references: [id], onDelete: Cascade)
@@ -91,6 +94,7 @@ model MensagemTemplate {
   id              String       @id @default(uuid())
   titulo          String
   texto           String
+  botoes          String?      // Armazena JSON com os botões configurados
   organization_id String
   
   organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)

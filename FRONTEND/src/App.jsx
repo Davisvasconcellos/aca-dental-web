@@ -11,6 +11,7 @@ import Orcamentos from './pages/Orcamentos';
 import Configuracoes from './pages/Configuracoes';
 import Todos from './pages/Todos';
 import Campanhas from './pages/Campanhas';
+import CampanhaDetalhes from './pages/CampanhaDetalhes';
 import Login from './pages/Login';
 import Clinicas from './pages/Clinicas';
 import UsuariosAdmin from './pages/UsuariosAdmin';
@@ -124,6 +125,7 @@ function MainApp() {
             <Route path="/orcamentos" element={<Orcamentos />} />
             <Route path="/todos" element={<Todos />} />
             <Route path="/campanhas" element={<Campanhas />} />
+            <Route path="/campanhas/:id" element={<CampanhaDetalhes />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
             
             <Route path="/admin" element={<Navigate to="/admin/clinicas" replace />} />

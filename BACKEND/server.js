@@ -13,6 +13,8 @@ const updateRoutes = require('./routes/updateRoutes');
 const campanhaRoutes = require('./routes/campanhaRoutes');
 const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const webhookRoutes = require('./routes/webhookRoutes');
+const typebotRoutes = require('./routes/typebotRoutes');
 const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
@@ -40,6 +42,8 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/config', authMiddleware, configRoutes);
 app.use('/api/update', authMiddleware, updateRoutes);
 app.use('/api/campanhas', authMiddleware, campanhaRoutes);
+app.use('/api/webhooks', webhookRoutes);
+app.use('/api/integracoes/typebot', typebotRoutes);
 
 // ----------------------------------------------------
 // ROTA DE STATUS DA API
@@ -192,11 +196,11 @@ app.get('/api/mensagens', authMiddleware, async (req, res) => {
 app.post('/api/mensagens', authMiddleware, async (req, res) => {
   try {
     const orgId = req.user.organization_id;
-    const { titulo, texto } = req.body;
+    const { titulo, texto, botoes } = req.body;
     if (!titulo || !texto) return res.status(400).json({ error: 'Título e texto obrigatórios' });
     
     const novaMensagem = await prisma.mensagemTemplate.create({
-      data: { titulo, texto, organization_id: orgId }
+      data: { titulo, texto, botoes, organization_id: orgId }
     });
     res.json({ ok: true, mensagem: novaMensagem });
   } catch (error) {
@@ -209,7 +213,7 @@ app.put('/api/mensagens/:id', authMiddleware, async (req, res) => {
   try {
     const orgId = req.user.organization_id;
     const { id } = req.params;
-    const { titulo, texto } = req.body;
+    const { titulo, texto, botoes } = req.body;
     
     // Check ownership
     const exists = await prisma.mensagemTemplate.findFirst({ where: { id, organization_id: orgId } });
@@ -217,7 +221,7 @@ app.put('/api/mensagens/:id', authMiddleware, async (req, res) => {
     
     const atualizada = await prisma.mensagemTemplate.update({
       where: { id },
-      data: { titulo, texto }
+      data: { titulo, texto, botoes }
     });
     res.json({ ok: true, mensagem: atualizada });
   } catch (error) {

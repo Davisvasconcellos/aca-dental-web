@@ -21,12 +21,16 @@ router.get('/', async (req, res) => {
     // Mapear para incluir contagem de status
     const campanhasComStatus = await Promise.all(campanhas.map(async (c) => {
       const enviados = await prisma.campanhaAlvo.count({
-        where: { campanha_id: c.id, status_envio: 'ENVIADO' }
+        where: { campanha_id: c.id, status_envio: { in: ['ENVIADO', 'RESPONDIDO'] } }
+      });
+      const respondidos = await prisma.campanhaAlvo.count({
+        where: { campanha_id: c.id, status_envio: 'RESPONDIDO' }
       });
       return {
         ...c,
         total_alvos: c._count.alvos,
-        enviados
+        enviados,
+        respondidos
       };
     }));
 
@@ -68,7 +72,7 @@ router.get('/:id', async (req, res) => {
 // Cria uma nova campanha e seus alvos
 router.post('/', async (req, res) => {
   try {
-    const { nome, mensagem_template, pacientesIds } = req.body;
+    const { nome, mensagem_template, botoes, pacientesIds } = req.body;
 
     if (!nome) {
       return res.status(400).json({ error: 'Dados inválidos. Necessário nome.' });
@@ -82,6 +86,7 @@ router.post('/', async (req, res) => {
       data: {
         nome,
         mensagem_template: mensagem_template || '',
+        botoes: botoes || null,
         status: 'ATIVA',
         organization_id: orgId,
         alvos: {

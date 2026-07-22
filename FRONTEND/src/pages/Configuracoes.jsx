@@ -33,13 +33,14 @@ export default function Configuracoes() {
     wa_delay_after_send_s: 1.5,
     wa_queue_close_tab: 'false',
     radar_limpeza_dias: 180,
-    radar_limpeza_tags: 'limpeza, profilaxia'
+    radar_limpeza_tags: 'limpeza, profilaxia',
+    typebot_api_key: ''
   });
 
   const [tokenInput, setTokenInput] = useState('');
   const [mensagensList, setMensagensList] = useState([]);
   const [showMsgModal, setShowMsgModal] = useState(false);
-  const [editingMsg, setEditingMsg] = useState({ id: '', titulo: '', texto: '' });
+  const [editingMsg, setEditingMsg] = useState({ id: '', titulo: '', texto: '', botoes: [] });
   
   // Real instance status
   const [realEvoStatus, setRealEvoStatus] = useState('Verificando...');
@@ -142,6 +143,28 @@ export default function Configuracoes() {
       .catch(() => showStatus('Servidor offline', 'err'));
   };
 
+  const handleGerarTypebotKey = () => {
+    const randomHex = Array.from(crypto.getRandomValues(new Uint8Array(16)), b => b.toString(16).padStart(2, '0')).join('');
+    const newKey = `tb_key_${randomHex}`;
+    
+    setConfigs(prev => ({ ...prev, typebot_api_key: newKey }));
+
+    fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ typebot_api_key: newKey })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          showStatus('🔑 Nova chave do Typebot gerada e salva com sucesso!', 'ok');
+        } else {
+          showStatus('Erro ao salvar chave do Typebot', 'err');
+        }
+      })
+      .catch(() => showStatus('Servidor offline', 'err'));
+  };
+
   const handleSaveToken = () => {
     const t = tokenInput.trim();
     if (!t) {
@@ -177,7 +200,11 @@ export default function Configuracoes() {
     fetchAuth(url, {
       method,
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ titulo: editingMsg.titulo, texto: editingMsg.texto })
+      body: JSON.stringify({ 
+        titulo: editingMsg.titulo, 
+        texto: editingMsg.texto,
+        botoes: JSON.stringify(editingMsg.botoes)
+      })
     })
       .then(res => res.json())
       .then(data => {
@@ -451,6 +478,34 @@ export default function Configuracoes() {
                   </div>
                 </div>
 
+                <div style={{ marginTop: '20px', padding: '16px', background: 'var(--bg)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <h5 style={{ margin: 0, color: 'var(--accent)', fontSize: '13px', fontWeight: 'bold' }}>🤖 Integração Typebot (API Key)</h5>
+                  </div>
+                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
+                    Chave de segurança necessária para autenticar as requisições enviadas pelo bloco HTTP do Typebot para o nosso sistema.
+                  </div>
+                  
+                  <div className="cfg-row" style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                    <input 
+                      type="text" 
+                      value={configs.typebot_api_key || ''} 
+                      readOnly 
+                      placeholder="Nenhuma chave gerada ainda..."
+                      style={{ opacity: '.85', cursor: 'default', flex: 1, fontFamily: 'monospace', fontWeight: '600', letterSpacing: '0.5px' }} 
+                    />
+                    <button 
+                      type="button" 
+                      className="btn btn-ghost" 
+                      onClick={handleGerarTypebotKey}
+                      style={{ border: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+                      title="Gerar uma nova chave de API para o Typebot"
+                    >
+                      🔑 {configs.typebot_api_key ? 'Renovar Chave' : 'Gerar Chave'}
+                    </button>
+                  </div>
+                </div>
+
                 <div style={{ marginTop: '20px', padding: '15px', background: 'var(--bg)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
                   <div 
                     style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
@@ -536,13 +591,9 @@ export default function Configuracoes() {
               <div className="cfg-grid-two">
                 <div className="modal-section" style={{ gridColumn: '1 / -1' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-                    <label style={{ margin: 0 }}>Templates Salvos</label>
-                    <button 
-                      className="btn btn-primary" 
-                      onClick={() => { setEditingMsg({ id: '', titulo: '', texto: '' }); setShowMsgModal(true); }}
-                      style={{ fontSize: '12px', padding: '6px 12px' }}
-                    >
-                      + Novo Template
+                    <h5 style={{ margin: 0 }}>Modelos de Mensagem (Templates)</h5>
+                    <button className="btn btn-primary" style={{ padding: '6px 12px', fontSize: '12px' }} onClick={() => { setEditingMsg({ id: '', titulo: '', texto: '', botoes: [] }); setShowMsgModal(true); }}>
+                      ➕ Novo Template
                     </button>
                   </div>
                   
@@ -561,7 +612,12 @@ export default function Configuracoes() {
                             </div>
                           </div>
                           <div style={{ display: 'flex', gap: '8px' }}>
-                            <button className="btn btn-ghost" onClick={() => { setEditingMsg(msg); setShowMsgModal(true); }} style={{ padding: '6px 10px', fontSize: '12px' }}>✏️ Editar</button>
+                            <button className="btn btn-ghost" onClick={() => { 
+                              let parsed = [];
+                              try { parsed = msg.botoes ? JSON.parse(msg.botoes) : []; } catch(e){}
+                              setEditingMsg({...msg, botoes: parsed}); 
+                              setShowMsgModal(true); 
+                            }} style={{ padding: '6px 10px', fontSize: '12px' }}>✏️ Editar</button>
                             <button className="btn btn-ghost" onClick={() => handleDeleteMsg(msg.id)} style={{ padding: '6px 10px', fontSize: '12px', color: 'var(--red)' }}>🗑️</button>
                           </div>
                         </div>
@@ -810,9 +866,66 @@ export default function Configuracoes() {
                 className="cfg-input"
                 style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical' }}
               ></textarea>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
-                Use <code>&lt;%first_name%&gt;</code> para personalizar com o nome do paciente.
+              <div style={{ marginTop: '8px', display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                <span style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>Inserir Variável:</span>
+                <button 
+                  className="btn btn-ghost" 
+                  style={{ padding: '2px 8px', fontSize: '11px', background: 'rgba(255,255,255,0.1)' }}
+                  onClick={() => setEditingMsg(p => ({ ...p, texto: p.texto + ' <%first_name%>' }))}
+                >
+                  [+ Primeiro Nome]
+                </button>
               </div>
+            </div>
+
+            <div className="modal-section" style={{ marginBottom: '16px', padding: '12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px dashed var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--muted)', margin: 0 }}>BOTÕES INTERATIVOS (Máx 3)</label>
+                {(editingMsg.botoes || []).length < 3 && (
+                  <button 
+                    className="btn btn-ghost" 
+                    style={{ padding: '4px 8px', fontSize: '11px' }}
+                    onClick={() => setEditingMsg(p => ({ ...p, botoes: [...(p.botoes||[]), { id: `btn_${Date.now()}`, title: 'Novo Botão' }] }))}
+                  >
+                    ➕ Adicionar Botão
+                  </button>
+                )}
+              </div>
+              
+              {(editingMsg.botoes || []).map((b, idx) => (
+                <div key={idx} style={{ display: 'flex', gap: '8px', marginBottom: '8px' }}>
+                  <input 
+                    type="text" 
+                    value={b.title}
+                    onChange={(e) => {
+                      const newBotoes = [...editingMsg.botoes];
+                      newBotoes[idx].title = e.target.value;
+                      setEditingMsg(p => ({ ...p, botoes: newBotoes }));
+                    }}
+                    placeholder="Ex: Quero Agendar"
+                    className="cfg-input"
+                    style={{ flex: 1, padding: '8px', borderRadius: '4px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', fontSize: '12px' }}
+                    maxLength={20}
+                  />
+                  <button 
+                    className="btn btn-warn"
+                    style={{ padding: '8px 12px' }}
+                    onClick={() => {
+                      const newBotoes = [...editingMsg.botoes];
+                      newBotoes.splice(idx, 1);
+                      setEditingMsg(p => ({ ...p, botoes: newBotoes }));
+                    }}
+                  >
+                    🗑️
+                  </button>
+                </div>
+              ))}
+              
+              {(editingMsg.botoes || []).length === 0 && (
+                <div style={{ fontSize: '11px', color: 'var(--muted)', fontStyle: 'italic' }}>
+                  Nenhum botão configurado. A mensagem será enviada apenas com texto.
+                </div>
+              )}
             </div>
           </div>
           <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '20px' }}>

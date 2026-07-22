@@ -165,11 +165,20 @@ export default function Todos() {
       });
     }
 
+    let botoesToSave = null;
+    const selectEl = document.getElementById('m-camp-template-select');
+    if (selectEl && selectEl.value) {
+      const template = allTemplates.find(x => x.id === selectEl.value);
+      if (template && template.botoes) {
+        botoesToSave = template.botoes;
+      }
+    }
+
     try {
       const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText })
+        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText, botoes: botoesToSave })
       });
       const novaCamp = await res.json();
 
@@ -213,9 +222,15 @@ export default function Todos() {
       }
       
       let template = '';
+      let campaignBotoes = null;
       const currentCamp = allCampanhas.find(c => c.id === campaignId);
       if (currentCamp && currentCamp.mensagem_template) {
         template = currentCamp.mensagem_template;
+        if (currentCamp.botoes) {
+          try {
+            campaignBotoes = JSON.parse(currentCamp.botoes);
+          } catch (e) {}
+        }
       }
       
       if (!template) {
@@ -252,7 +267,8 @@ export default function Todos() {
               instance: configs.evo_instance,
               apikey: configs.evo_apikey,
               phone: p.celular,
-              message: msg
+              message: msg,
+              botoes: campaignBotoes
             })
           });
           const data = await res.json();
