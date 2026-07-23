@@ -8,7 +8,7 @@ const fetchAuth = (url, options = {}) => {
 
 import { useSearchParams, useNavigate } from 'react-router-dom';
 
-export default function Todos() {
+export default function Limpeza() {
   const [isCampModalOpen, setIsCampModalOpen] = useState(false);
   const [isMsgModalOpen, setIsMsgModalOpen] = useState(false);
   
@@ -33,10 +33,13 @@ export default function Todos() {
   // Estados da Tabela
   const [pacientes, setPacientes] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [radarDias, setRadarDias] = useState(180);
 
   // Estados do DataTable
   const [search, setSearch] = useState('');
+  const [filterPrio, setFilterPrio] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [filterAmostra, setFilterAmostra] = useState('atrasados'); // 'atrasados', 'no_prazo', 'todos'
   const [sortField, setSortField] = useState('score');
   const [sortDir, setSortDir] = useState(-1);
 
@@ -44,7 +47,7 @@ export default function Todos() {
   const [itemsPerPage, setItemsPerPage] = useState(25);
 
   useEffect(() => {
-    const fetchPacientes = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/pacientes`).then(res => res.json());
+    const fetchRadar = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/limpeza/radar`).then(res => res.json());
     const fetchCampList = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`).then(res => res.json());
     const fetchTemplates = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`).then(res => res.json());
     
@@ -52,14 +55,16 @@ export default function Todos() {
     if (urlCampaignId) {
       fetchCamp = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${urlCampaignId}`).then(res => res.json());
     } else {
+      // Se não há id, resetamos os estados locais (fechar campanha)
       setIsCampaignActive(false);
       setCampaignName('');
       setCampaignId(null);
       setIsValidated(false);
     }
 
-    Promise.all([fetchPacientes, fetchCampList, fetchTemplates, fetchCamp])
-      .then(([pacientesData, campList, templatesData, campData]) => {
+    Promise.all([fetchRadar, fetchCampList, fetchTemplates, fetchCamp])
+      .then(([radarData, campList, templatesData, campData]) => {
+        setRadarDias(radarData.radarDias || 180);
         if (Array.isArray(campList)) setAllCampanhas(campList);
         if (Array.isArray(templatesData)) setAllTemplates(templatesData);
         
@@ -73,7 +78,14 @@ export default function Todos() {
           });
         }
         
-        const mapped = pacientesData.map(p => {
+        const mapped = (radarData.pacientes || []).map(p => {
+          const score = p.score || 0;
+          let prioLabel = score >= 5 ? 'ALTA' : score >= 3 ? 'MEDIA' : 'BAIXA';
+          let prioClass = score >= 5 ? 'prio-high' : score >= 3 ? 'prio-mid' : 'prio-low';
+          
+          const ev_date = p.ultima_limpeza_data ? new Date(p.ultima_limpeza_data) : null;
+          const diffDias = ev_date ? Math.floor((new Date() - ev_date) / (1000 * 60 * 60 * 24)) : 9999;
+          
           let selected = false;
           let status = '-';
           if (campData && !campData.error && alvosMap[p.id]) {
@@ -89,27 +101,39 @@ export default function Todos() {
             id_sDental: p.id_sDental,
             nome: p.nome,
             celular: p.telefone || '-',
-            consulta: p.ultima_evolucao_data ? new Date(p.ultima_evolucao_data).toLocaleDateString('pt-BR') : '-',
-            limpeza: p.ultima_limpeza_data ? new Date(p.ultima_limpeza_data).toLocaleDateString('pt-BR') : '-',
+            limpeza: p.ultima_limpeza_data ? ev_date.toLocaleDateString('pt-BR') : '-',
+            evolucao: p.ultima_evolucao_data ? new Date(p.ultima_evolucao_data).toLocaleDateString('pt-BR') : '-',
+            ultimo_proc: p.ultimo_proc,
             score: p.score || 0,
+            prioridade: prioLabel,
+            prioClass: prioClass,
             selected: selected,
-            status: status
+            status: status,
+            diffDias: diffDias
           };
         });
         setPacientes(mapped);
         setLoading(false);
       })
       .catch(err => {
-        console.error("Erro ao buscar pacientes/campanhas:", err);
+        console.error("Erro ao carregar dados do radar/campanha:", err);
         setLoading(false);
       });
   }, [urlCampaignId]);
 
-  let filteredData = pacientes.filter(p => {
-    if (search && !p.nome.toLowerCase().includes(search.toLowerCase()) && !p.celular.includes(search)) return false;
-    if (filterStatus === 'ativos' && p.score === 0) return false;
+  // Base da amostra (afetada apenas pelo filtro temporal)
+  const amostraData = pacientes.filter(p => {
+    if (filterAmostra === 'atrasados' && p.diffDias <= radarDias) return false;
+    if (filterAmostra === 'no_prazo' && p.diffDias > radarDias) return false;
+    return true;
+  });
+
+  // Filtros da tabela (busca, status, prioridade)
+  let filteredData = amostraData.filter(p => {
+    if (search && !p.nome.toLowerCase().includes(search.toLowerCase()) && !p.id_sDental.includes(search)) return false;
     if (filterStatus === 'nao' && p.status === '✓') return false;
     if (filterStatus === 'sim' && p.status !== '✓') return false;
+    if (filterPrio && p.prioridade !== filterPrio) return false;
     return true;
   });
 
@@ -118,6 +142,11 @@ export default function Todos() {
       let valA = a[sortField];
       let valB = b[sortField];
       
+      if (sortField === 'limpeza') {
+        valA = a.limpeza === '-' ? 0 : new Date(a.limpeza.split('/').reverse().join('-')).getTime();
+        valB = b.limpeza === '-' ? 0 : new Date(b.limpeza.split('/').reverse().join('-')).getTime();
+      }
+
       if (typeof valA === 'string') valA = valA.toLowerCase();
       if (typeof valB === 'string') valB = valB.toLowerCase();
       
@@ -150,7 +179,7 @@ export default function Todos() {
       alert("Informe o nome da nova campanha.");
       return;
     }
-    
+
     if (!msgText) {
       alert("A mensagem da campanha não pode ficar em branco.");
       return;
@@ -165,20 +194,11 @@ export default function Todos() {
       });
     }
 
-    let botoesToSave = null;
-    const selectEl = document.getElementById('m-camp-template-select');
-    if (selectEl && selectEl.value) {
-      const template = allTemplates.find(x => x.id === selectEl.value);
-      if (template && template.botoes) {
-        botoesToSave = template.botoes;
-      }
-    }
-
     try {
       const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText, botoes: botoesToSave })
+        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText })
       });
       const novaCamp = await res.json();
 
@@ -191,13 +211,13 @@ export default function Todos() {
             fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${novaCamp.id}/alvo/${alvo.paciente_id}`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ status_envio: 'PENDENTE' })
+              body: JSON.stringify({ status_envio: 'PENDENTE' }) // Herdar apenas a seleção, limpar o status
             })
           ));
         }
       }
       
-      navigate(`/todos?campanha_id=${novaCamp.id}`);
+      navigate(`/limpeza?campanha_id=${novaCamp.id}`);
       setIsCampModalOpen(false);
     } catch (err) {
       console.error(err);
@@ -222,15 +242,9 @@ export default function Todos() {
       }
       
       let template = '';
-      let campaignBotoes = null;
       const currentCamp = allCampanhas.find(c => c.id === campaignId);
       if (currentCamp && currentCamp.mensagem_template) {
         template = currentCamp.mensagem_template;
-        if (currentCamp.botoes) {
-          try {
-            campaignBotoes = JSON.parse(currentCamp.botoes);
-          } catch (e) {}
-        }
       }
       
       if (!template) {
@@ -257,6 +271,24 @@ export default function Todos() {
         const msg = template.replace(/<%first_name%>/g, firstName);
         
         setCurrentStatus(`Enviando para ${firstName}... (${i+1}/${selectedPacientes.length})`);
+
+        // Pré-registrar sessão no Typebot para capturar o sessionId com variáveis preenchidas
+        let tbSessionId = null;
+        if (campaignId) {
+          try {
+            const tbRes = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/pre-registrar-typebot`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paciente_id: p.id })
+            });
+            const tbData = await tbRes.json();
+            if (tbData.ok) {
+              tbSessionId = tbData.sessionId;
+            }
+          } catch (tbErr) {
+            console.warn(`[TYPEBOT PRE-REGISTER WARNING] Não foi possível pré-registrar sessão para ${p.nome}:`, tbErr);
+          }
+        }
         
         try {
           const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-evolution`, {
@@ -267,19 +299,19 @@ export default function Todos() {
               instance: configs.evo_instance,
               apikey: configs.evo_apikey,
               phone: p.celular,
-              message: msg,
-              botoes: campaignBotoes
+              message: msg
             })
           });
           const data = await res.json();
           
           if (data.ok) {
             setPacientes(prev => prev.map(pt => pt.id === p.id ? { ...pt, status: '✓', selected: false } : pt));
+            // Update backend
             if (campaignId) {
               await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/alvo/${p.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status_envio: 'ENVIADO' })
+                body: JSON.stringify({ status_envio: 'ENVIADO', typebot_session_id: tbSessionId })
               });
             }
           } else {
@@ -320,16 +352,20 @@ export default function Todos() {
       }
       setIsSending(false);
       
+      // Finaliza a campanha no backend
       if (campaignId) {
         try {
-          await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/finalizar`, { method: 'PUT' });
+          await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/finalizar`, {
+            method: 'PUT'
+          });
         } catch (e) {
           console.error("Erro ao finalizar campanha no backend:", e);
         }
       }
       
+      // Fecha a campanha no frontend para evitar duplo envio acidental
       setTimeout(() => {
-        navigate('/todos');
+        navigate('/limpeza');
         setIsCampaignActive(false);
         setCampaignId(null);
         setIsValidated(false);
@@ -356,126 +392,185 @@ export default function Todos() {
     return (
       <div className="page-loader">
         <div className="global-spinner"></div>
-        <div>Carregando Banco de Pacientes...</div>
+        <div>Carregando Radar de Limpeza...</div>
       </div>
     );
   }
 
   return (
-    <div id="tab-todos">
+    <div id="tab-radar">
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap', marginBottom: '12px' }}>
-        <div style={{ fontSize: '12px', color: 'var(--muted)' }}>Todos os Pacientes</div>
-        <div style={{ background: 'rgba(79,142,247,.15)', border: '1px solid rgba(79,142,247,.35)', color: '#93c5fd', borderRadius: '999px', padding: '6px 11px', fontSize: '11px', fontWeight: '700' }}>
-          👥 Base Completa
+        <div style={{ fontSize: '12px', color: 'var(--muted)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+          Jornada de Limpeza
+          <div className="tt-wrap" style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: '16px', height: '16px', borderRadius: '50%', background: 'var(--border)', color: 'var(--text)', fontSize: '10px', cursor: 'help', marginLeft: '6px' }}>
+            ?
+            <div className="tt tt-down" style={{ width: '260px', whiteSpace: 'normal', fontWeight: 'normal', textTransform: 'none', textAlign: 'left', lineHeight: '1.4' }}>
+              <div className="tt-date" style={{ marginBottom: '6px', fontSize: '11px', color: 'var(--accent)' }}>Como o Score é calculado:</div>
+              <div style={{ display: 'flex', gap: '6px' }}><span style={{ color: 'var(--green)', fontWeight: 700 }}>+3 pts:</span> <span>Possui orçamento em aberto</span></div>
+              <div style={{ display: 'flex', gap: '6px' }}><span style={{ color: 'var(--green)', fontWeight: 700 }}>+1 pt:</span> <span>Orçamento ≥ R$ 1.000</span></div>
+              <div style={{ display: 'flex', gap: '6px' }}><span style={{ color: 'var(--green)', fontWeight: 700 }}>+1 pt:</span> <span>Orçamento ≥ R$ 5.000</span></div>
+              <div style={{ display: 'flex', gap: '6px' }}><span style={{ color: 'var(--green)', fontWeight: 700 }}>+2 pts:</span> <span>Limpeza atrasada (amostra cfg.)</span></div>
+              <div style={{ display: 'flex', gap: '6px' }}><span style={{ color: 'var(--green)', fontWeight: 700 }}>+1 pt:</span> <span>Sem consulta geral há &gt; 60 dias</span></div>
+            </div>
+          </div>
+        </div>
+        <div id="r-range-badge" style={{ background: 'rgba(234,179,8,.15)', border: '1px solid rgba(234,179,8,.35)', color: '#fde68a', borderRadius: '999px', padding: '6px 11px', fontSize: '11px', fontWeight: '700' }}>
+          🦷 Range ativo da Amostra: {radarDias} dias
         </div>
       </div>
 
       <div className="kpi-grid" style={{ marginBottom: '16px' }}>
-        <div className="kpi purple"><div className="kpi-lbl">Total de Pacientes</div><div className="kpi-val">{pacientes.length}</div><div className="kpi-sub">cadastrados no sistema</div></div>
-        <div className="kpi blue"><div className="kpi-lbl">Ativos</div><div className="kpi-val">{pacientes.filter(p => p.score > 0).length}</div><div className="kpi-sub">com interações recentes</div></div>
-        <div className="kpi yellow"><div className="kpi-lbl">Com Celular</div><div className="kpi-val">{pacientes.filter(p => p.celular !== '-').length}</div><div className="kpi-sub">base para mensagens</div></div>
-        <div className="kpi green"><div className="kpi-lbl">Enviados Campanha</div><div className="kpi-val">{pacientes.filter(p => p.status === '✓').length}</div><div className="kpi-sub">nesta sessão</div></div>
+        <div className="kpi blue"><div className="kpi-lbl">Total Analisados</div><div className="kpi-val">{amostraData.length}</div><div className="kpi-sub">pacientes na amostra</div></div>
+        <div className="kpi red"><div className="kpi-lbl">🔴 Alta Prioridade</div><div className="kpi-val">{amostraData.filter(p => p.prioridade === 'ALTA').length}</div><div className="kpi-sub">ligar agora</div></div>
+        <div className="kpi yellow"><div className="kpi-lbl">🟡 Média Prioridade</div><div className="kpi-val">{amostraData.filter(p => p.prioridade === 'MEDIA').length}</div><div className="kpi-sub">WhatsApp em breve</div></div>
+        <div className="kpi green"><div className="kpi-lbl">✅ Enviados Campanha</div><div className="kpi-val">{amostraData.filter(p => p.status === '✓').length}</div><div className="kpi-sub">na amostra</div></div>
       </div>
 
-      {/* Console de Envios */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginTop: '12px', marginBottom: '16px' }}>
-        
-        {/* Card 1: Campanha */}
-        <div className="cfg-card" style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
-          <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text)', marginBottom: '8px' }}>1. Campanha</div>
-          {!isCampaignActive ? (
-            <>
-              <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px' }}>Nenhuma campanha ativa.</div>
-              <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsCampModalOpen(true)}>
-                ⚙️ Configurar Campanha
-              </button>
-            </>
-          ) : (
-            <>
-              <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent)', marginBottom: '12px' }}>{campaignName}</div>
-              <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', background: 'var(--bg)' }} onClick={() => navigate('/todos')}>
-                ❌ Fechar Campanha
-              </button>
-            </>
+      {/* CARD DE CAMPANHA ATIVA / CONTROLE DE FLUXO */}
+      <div id="camp-active-card" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '13px', padding: '18px', marginBottom: '16px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '12px' }}>
+          <div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ fontSize: '16px', fontWeight: '700' }}>
+                {isCampaignActive ? `📋 ${campaignName}` : '📋 Nenhuma Campanha Ativa'}
+              </span>
+              <span className="camp-badge" style={{ background: isCampaignActive ? 'rgba(79,142,247,.12)' : 'rgba(255,255,255,.05)', color: isCampaignActive ? 'var(--accent)' : 'var(--muted)' }}>
+                {isCampaignActive ? 'Ativa' : 'Inativo'}
+              </span>
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--muted)', marginTop: '4px' }}>
+              {isCampaignActive ? 'Selecione os pacientes na tabela abaixo para adicionar à fila de disparo.' : 'Crie uma nova campanha para habilitar a seleção de pacientes.'}
+            </div>
+          </div>
+          
+          {/* Contador Destaque de Selecionados */}
+          {isCampaignActive && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', background: 'rgba(79,142,247,.1)', border: '1px solid rgba(79,142,247,.2)', padding: '10px 18px', borderRadius: '10px' }}>
+              <span style={{ fontSize: '26px', fontWeight: '800', color: 'var(--accent)', lineHeight: '1' }}>{selectedCount}</span>
+              <span style={{ fontSize: '10px', fontWeight: '700', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '.5px' }}>Selecionados</span>
+            </div>
           )}
+
         </div>
 
-        {/* Card 2: Validação */}
-        <div className="cfg-card" style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', opacity: isCampaignActive ? 1 : 0.5 }}>
-          <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text)', marginBottom: '8px' }}>2. Seleção e Validação</div>
-          {!isCampaignActive ? (
-            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Aguardando campanha...</div>
-          ) : (
-            <>
-              {!isValidated ? (
-                <>
-                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
-                    Selecione os pacientes na tabela abaixo e valide a fila. <br/>
-                    <div style={{ display: 'inline-block', background: 'var(--accent)', color: '#fff', padding: '4px 10px', borderRadius: '12px', marginTop: '8px', fontSize: '14px', fontWeight: 'bold' }}>
-                      {selectedCount} contatos selecionados
+        {/* Console de Envios */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(250px, 1fr))', gap: '16px', marginTop: '12px', marginBottom: '16px' }}>
+          
+          {/* Card 1: Campanha */}
+          <div className="cfg-card" style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px' }}>
+            <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text)', marginBottom: '8px' }}>1. Campanha</div>
+            {!isCampaignActive ? (
+              <>
+                <div style={{ fontSize: '11px', color: 'var(--muted)', marginBottom: '12px' }}>Nenhuma campanha ativa.</div>
+                <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={() => setIsCampModalOpen(true)}>
+                  ⚙️ Configurar Campanha
+                </button>
+              </>
+            ) : (
+              <>
+                <div style={{ fontSize: '14px', fontWeight: 'bold', color: 'var(--accent)', marginBottom: '12px' }}>{campaignName}</div>
+                <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', background: 'var(--bg)' }} onClick={() => navigate('/limpeza')}>
+                  ❌ Fechar Campanha
+                </button>
+              </>
+            )}
+          </div>
+
+          {/* Card 2: Validação */}
+          <div className="cfg-card" style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', opacity: isCampaignActive ? 1 : 0.5 }}>
+            <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text)', marginBottom: '8px' }}>2. Seleção e Validação</div>
+            {!isCampaignActive ? (
+              <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Aguardando campanha...</div>
+            ) : (
+              <>
+                {!isValidated ? (
+                  <>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>
+                      Selecione os pacientes na tabela abaixo e valide a fila. <br/>
+                      <div style={{ display: 'inline-block', background: 'var(--accent)', color: '#fff', padding: '4px 10px', borderRadius: '12px', marginTop: '8px', fontSize: '14px', fontWeight: 'bold' }}>
+                        {selectedCount} contatos selecionados
+                      </div>
                     </div>
-                  </div>
-                  <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={selectedCount === 0} onClick={() => setIsValidated(true)}>
-                    ✅ Validar {selectedCount} pacientes
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: '12px', color: 'var(--green)', fontWeight: 'bold', marginBottom: '12px' }}>
-                    Fila validada com {selectedCount} pacientes!
-                  </div>
-                  <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', background: 'var(--bg)' }} onClick={() => setIsValidated(false)} disabled={isSending}>
-                    ✏️ Editar Seleção
-                  </button>
-                </>
-              )}
-            </>
-          )}
-        </div>
+                    <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} disabled={selectedCount === 0} onClick={() => setIsValidated(true)}>
+                      ✅ Validar {selectedCount} pacientes
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '12px', color: 'var(--green)', fontWeight: 'bold', marginBottom: '12px' }}>
+                      Fila validada com {selectedCount} pacientes!
+                    </div>
+                    <button className="btn btn-ghost" style={{ width: '100%', justifyContent: 'center', background: 'var(--bg)' }} onClick={() => setIsValidated(false)} disabled={isSending}>
+                      ✏️ Editar Seleção
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
 
-        {/* Card 3: Disparo */}
-        <div className="cfg-card" style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', opacity: isValidated ? 1 : 0.5 }}>
-          <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text)', marginBottom: '8px' }}>3. Fila de Disparo (Evolution API)</div>
-          {!isValidated ? (
-            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Aguardando validação...</div>
-          ) : (
-            <>
-              {!isSending ? (
-                <>
-                  <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Pronto para iniciar os envios automáticos.</div>
-                  <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={startEvolutionQueue}>
-                    ▶️ Iniciar Disparos
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div style={{ fontSize: '11px', color: 'var(--text)', marginBottom: '6px' }}>{currentStatus}</div>
-                  <div className="send-progress-bar" style={{ marginBottom: '10px' }}>
-                    <div className="send-progress-fill" style={{ width: `${(sendProgress / queueTotal) * 100}%` }}></div>
-                  </div>
-                  <button className="btn btn-warn" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { abortRef.current = true; }}>
-                    ⏹️ Parar Fila
-                  </button>
-                </>
-              )}
-            </>
-          )}
+          {/* Card 3: Disparo */}
+          <div className="cfg-card" style={{ background: 'var(--s2)', border: '1px solid var(--border)', borderRadius: '10px', padding: '16px', opacity: isValidated ? 1 : 0.5 }}>
+            <div style={{ fontSize: '13px', fontWeight: '700', color: 'var(--text)', marginBottom: '8px' }}>3. Fila de Disparo (Evolution API)</div>
+            {!isValidated ? (
+              <div style={{ fontSize: '11px', color: 'var(--muted)' }}>Aguardando validação...</div>
+            ) : (
+              <>
+                {!isSending ? (
+                  <>
+                    <div style={{ fontSize: '12px', color: 'var(--muted)', marginBottom: '12px' }}>Pronto para iniciar os envios automáticos.</div>
+                    <button className="btn btn-primary" style={{ width: '100%', justifyContent: 'center' }} onClick={startEvolutionQueue}>
+                      ▶️ Iniciar Disparos
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <div style={{ fontSize: '11px', color: 'var(--text)', marginBottom: '6px' }}>{currentStatus}</div>
+                    <div className="send-progress-bar" style={{ marginBottom: '10px' }}>
+                      <div className="send-progress-fill" style={{ width: `${(sendProgress / queueTotal) * 100}%` }}></div>
+                    </div>
+                    <button className="btn btn-warn" style={{ width: '100%', justifyContent: 'center' }} onClick={() => { abortRef.current = true; }}>
+                      ⏹️ Parar Fila
+                    </button>
+                  </>
+                )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
 
       <div className="tbl-wrap">
         <div className="tbl-toolbar">
-          <input type="text" placeholder="🔍 Buscar por nome ou telefone..." value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1); }} />
+          <input type="text" placeholder="🔍 Buscar paciente..." value={search} onChange={e => { setSearch(e.target.value); setCurrentPage(1); }} />
+          
+          <select value={filterPrio} onChange={e => { setFilterPrio(e.target.value); setCurrentPage(1); }}>
+            <option value="">Todas prioridades</option>
+            <option value="ALTA">🔴 Alta</option>
+            <option value="MEDIA">🟡 Média</option>
+          </select>
+
+          {(() => {
+            const countAtrasados = pacientes.filter(p => p.diffDias > radarDias).length;
+            const countNoPrazo = pacientes.filter(p => p.diffDias <= radarDias).length;
+            return (
+              <select value={filterAmostra} onChange={e => { setFilterAmostra(e.target.value); setCurrentPage(1); }}>
+                <option value="atrasados">⚠️ &gt;{radarDias}d - [{countAtrasados}]</option>
+                <option value="no_prazo">✅ &le;{radarDias}d - [{countNoPrazo}]</option>
+                <option value="todos">🌐 Todos - [{pacientes.length}]</option>
+              </select>
+            );
+          })()}
+
           <select value={filterStatus} onChange={e => { setFilterStatus(e.target.value); setCurrentPage(1); }}>
-            <option value="">Status: Todos</option>
-            <option value="ativos">Apenas Ativos</option>
+            <option value="">Todos os status</option>
             <option value="nao">Não enviados</option>
             <option value="sim">Já enviados</option>
           </select>
-          <button className={`sort-btn ${sortField === 'nome' ? 'active' : ''}`} onClick={() => handleSort('nome')}>A-Z</button>
-          <button className={`sort-btn ${sortField === 'score' ? 'active' : ''}`} onClick={() => handleSort('score')}>Score</button>
-          <button className={`sort-btn ${sortField === 'limpeza' ? 'active' : ''}`} onClick={() => handleSort('limpeza')}>Limpeza</button>
-          
+
+          <button className={`sort-btn ${sortField === 'score' ? 'active' : ''}`} onClick={() => { setSortField('score'); setSortDir(sortField === 'score' ? -sortDir : -1); setCurrentPage(1); }}>{sortField === 'score' && sortDir === 1 ? '↑' : '↓'} Score</button>
+          <button className={`sort-btn ${sortField === 'limpeza' ? 'active' : ''}`} onClick={() => { setSortField('limpeza'); setSortDir(sortField === 'limpeza' ? -sortDir : -1); setCurrentPage(1); }}>🦷 Limpeza</button>
+          <button className={`sort-btn ${sortField === 'nome' ? 'active' : ''}`} onClick={() => { setSortField('nome'); setSortDir(sortField === 'nome' ? -sortDir : 1); setCurrentPage(1); }}>A-Z</button>
+
           <div className="ml-auto" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
           </div>
         </div>
@@ -485,29 +580,38 @@ export default function Todos() {
               <th style={{ width: '40px', textAlign: 'center' }}>
                 <input type="checkbox" checked={allSelected} onChange={toggleSelectAll} disabled={!isCampaignActive || isValidated} />
               </th>
-              <th style={{ width: '40px' }}>#</th>
-              <th>Paciente</th>
-              <th>Celular</th>
-              <th>Última Consulta</th>
-              <th>Última Limpeza</th>
-              <th>Score</th>
+              <th style={{ width: '40px' }}>ID</th>
+              <th onClick={() => handleSort('nome')} style={{ cursor: 'pointer' }}>Paciente {sortField === 'nome' && (sortDir === 1 ? '↑' : '↓')}</th>
+              <th onClick={() => handleSort('limpeza')} style={{ cursor: 'pointer' }}>Última Limpeza {sortField === 'limpeza' && (sortDir === 1 ? '↑' : '↓')}</th>
+              <th onClick={() => handleSort('diffDias')} style={{ cursor: 'pointer' }}>Dias {sortField === 'diffDias' && (sortDir === 1 ? '↑' : '↓')}</th>
+              <th onClick={() => handleSort('evolucao')} style={{ cursor: 'pointer' }}>Última Consulta {sortField === 'evolucao' && (sortDir === 1 ? '↑' : '↓')}</th>
+              <th onClick={() => handleSort('score')} style={{ cursor: 'pointer' }}>Score {sortField === 'score' && (sortDir === 1 ? '↑' : '↓')}</th>
+              <th onClick={() => handleSort('prioridade')} style={{ cursor: 'pointer' }}>Prioridade {sortField === 'prioridade' && (sortDir === 1 ? '↑' : '↓')}</th>
               <th style={{ textAlign: 'center' }}>✓</th>
               <th>WA</th>
             </tr>
           </thead>
           <tbody>
-            {currentData.length === 0 ? (
-              <tr><td colSpan="9" style={{textAlign: 'center', padding: '20px'}}>Nenhum paciente encontrado.</td></tr>
-            ) : currentData.map((p, index) => (
+            {currentData.map((p, index) => (
               <tr key={p.id} className={p.selected ? 'tr-playing' : ''}>
                 <td style={{ textAlign: 'center' }}>
                   <input type="checkbox" checked={p.selected} onChange={() => toggleSelect(p.id)} disabled={!isCampaignActive || isValidated} />
                 </td>
                 <td>{p.id_sDental}</td>
-                <td style={{ fontWeight: 500 }}>{p.nome}</td>
-                <td>{p.celular}</td>
-                <td>{p.consulta}</td>
+                <td style={{ fontWeight: 500 }}>
+                  <div className="tt-wrap">
+                    {p.nome}
+                    {p.ultimo_proc && (
+                      <div className="tt">
+                        <div className="tt-date">Último histórico ({p.evolucao})</div>
+                        {p.ultimo_proc}
+                      </div>
+                    )}
+                  </div>
+                </td>
                 <td>{p.limpeza}</td>
+                <td>{p.diffDias === 9999 ? '-' : `${p.diffDias} dias`}</td>
+                <td>{p.evolucao}</td>
                 <td>
                   <div className="score-wrap">
                     <div className="score-bg">
@@ -516,6 +620,7 @@ export default function Todos() {
                     <span style={{ color: p.score >= 5 ? 'var(--red)' : p.score >= 3 ? 'var(--yellow)' : 'var(--green)', fontWeight: 700, fontSize: '11px', marginLeft: '5px' }}>{p.score}</span>
                   </div>
                 </td>
+                <td>{p.prioridade === 'ALTA' ? <span className="prio-high">🔴 ALTA</span> : p.prioridade === 'MEDIA' ? <span className="prio-mid">🟡 MED</span> : <span className="prio-low">⚪ BAIXA</span>}</td>
                 <td style={{ textAlign: 'center' }}>{p.status}</td>
                 <td>-</td>
               </tr>
@@ -548,7 +653,7 @@ export default function Todos() {
                 <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>
                   1. NOME DA NOVA CAMPANHA
                 </label>
-                <input id="m-camp-nome" className="cfg-input" type="text" placeholder="Ex: Avisos Gerais..." style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
+                <input id="m-camp-nome" className="cfg-input" type="text" placeholder="Ex: Limpeza Julho 2026..." style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
                 
                 <div style={{ marginTop: '20px', marginBottom: '16px' }}>
                   <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>
@@ -605,10 +710,10 @@ export default function Todos() {
       <div className={`overlay ${isMsgModalOpen ? 'show' : ''}`}>
         <div className="modal">
           <h3>✉️ Configurar Mensagem</h3>
-          <div className="sub">Personalize o disparo em massa</div>
+          <div className="sub">Use tags para personalizar automaticamente</div>
           <div className="modal-section">
-            <label>Texto</label>
-            <textarea rows="5" defaultValue="Olá <%first_name%>! Passando para avisar que..."></textarea>
+            <label>Preview</label>
+            <textarea rows="5" defaultValue="Olá <%first_name%>! Tudo bem? Aqui é da Clínica ACA..."></textarea>
           </div>
           <div className="modal-actions">
             <button className="btn btn-ghost" onClick={() => setIsMsgModalOpen(false)}>Fechar</button>
@@ -617,5 +722,6 @@ export default function Todos() {
       </div>
 
     </div>
-  );
+  </div>
+);
 }

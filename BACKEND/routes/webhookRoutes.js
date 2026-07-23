@@ -3,16 +3,44 @@ const router = express.Router();
 const { PrismaClient } = require('@prisma/client');
 const prisma = new PrismaClient();
 
+// Armazena em memória os últimos 100 logs de webhooks para depuração em tempo real
+const webhookLogs = [];
+
+function addWebhookLog(type, message, details = null) {
+  const logItem = {
+    id: Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+    timestamp: new Date().toISOString(),
+    type,
+    message,
+    details
+  };
+  webhookLogs.unshift(logItem);
+  if (webhookLogs.length > 100) webhookLogs.pop();
+  console.log(`[WEBHOOK LOG - ${type}] ${message}`, details ? JSON.stringify(details) : '');
+}
+
+// GET /api/webhooks/logs
+// Endpoint público de depuração dos eventos do webhook e Typebot
+router.get('/logs', (req, res) => {
+  res.json({ ok: true, total: webhookLogs.length, logs: webhookLogs });
+});
+
+// DELETE /api/webhooks/logs
+// Limpa o histórico de logs
+router.delete('/logs', (req, res) => {
+  webhookLogs.length = 0;
+  res.json({ ok: true, msg: 'Logs limpos com sucesso.' });
+});
+
 // A Evolution API envia POSTs para esta rota quando um evento ocorre.
-// Geralmente a URL cadastrada lá seria: https://sua-api.com/api/webhooks/evolution
+// URL cadastrada: https://aca-api.dmedia.com.br/api/webhooks/evolution
 router.post('/evolution', async (req, res) => {
   try {
     const event = req.body;
     
     // Verificamos se é um evento de recebimento de mensagem (MESSAGES_UPSERT)
-    if (event && event.event === 'messages.upsert') {
+    if (event && (event.event === 'messages.upsert' || event.event === 'MESSAGES_UPSERT')) {
       const messages = event.data?.messages || event.data;
-      
       const messagesArray = Array.isArray(messages) ? messages : [messages];
       
       if (messagesArray.length > 0) {
@@ -23,8 +51,9 @@ router.post('/evolution', async (req, res) => {
           const remoteJid = msg.key?.remoteJid; // Ex: 5511999999999@s.whatsapp.net
           if (!remoteJid) continue;
           
-          // Tratando o telefone para ficar só os números
+          // Tratando o telefone para ficar só os números (ex: 5521965445992)
           let phone = remoteJid.split('@')[0];
+          let cleanIncomingPhone = phone.replace(/\D/g, '');
           
           // O texto da resposta (pode vir de botões, de lista, ou texto normal)
           let responseText = msg.message?.conversation || 
@@ -34,17 +63,33 @@ router.post('/evolution', async (req, res) => {
                              msg.message?.listResponseMessage?.singleSelectReply?.selectedRowId ||
                              '';
 
-          // Vamos buscar se esse telefone existe na base de pacientes
-          const paciente = await prisma.paciente.findFirst({
-            where: { telefone: phone }
+          addWebhookLog('RECEIVE', `Mensagem recebida do WhatsApp: "${responseText}"`, {
+            remoteJid,
+            phone,
+            cleanIncomingPhone,
+            responseText
           });
+
+          // Buscar pacientes e comparar ignorando formatação (+55 21 99999-9999)
+          const todosPacientes = await prisma.paciente.findMany({
+            select: { id: true, nome: true, telefone: true, organization_id: true }
+          });
+
+          const paciente = todosPacientes.find(p => p.telefone && p.telefone.replace(/\D/g, '') === cleanIncomingPhone) ||
+                           todosPacientes.find(p => p.telefone && p.telefone.replace(/\D/g, '').endsWith(cleanIncomingPhone.slice(-8)));
           
           if (paciente) {
-            // Se achou o paciente, verificamos se ele tem alguma CampanhaAlvo que esteja como 'ENVIADO' ou 'EM_ANDAMENTO'
+            addWebhookLog('PATIENT_MATCH', `Paciente identificado: ${paciente.nome}`, {
+              pacienteId: paciente.id,
+              nome: paciente.nome,
+              telefoneBanco: paciente.telefone
+            });
+            
+            // Buscar o alvo de campanha mais recente
             const ultimoAlvo = await prisma.campanhaAlvo.findFirst({
               where: {
                 paciente_id: paciente.id,
-                status_envio: { in: ['ENVIADO', 'EM_ANDAMENTO'] }
+                status_envio: { in: ['ENVIADO', 'EM_ANDAMENTO', 'PENDENTE', 'RESPONDIDO'] }
               },
               orderBy: {
                 data_envio: 'desc'
@@ -52,7 +97,7 @@ router.post('/evolution', async (req, res) => {
             });
             
             if (ultimoAlvo) {
-              // Atualizamos para RESPONDIDO no banco de dados do ACA
+              // Atualizamos para RESPONDIDO no banco do ACA
               await prisma.campanhaAlvo.update({
                 where: {
                   campanha_id_paciente_id: {
@@ -67,24 +112,78 @@ router.post('/evolution', async (req, res) => {
                 }
               });
 
-              // SE POSSUIR SESSÃO DO TYPEBOT REGISTRADA, PROSSEGUE O FLUXO NO TYPEBOT
-              if (ultimoAlvo.typebot_session_id) {
-                console.log(`[TYPEBOT CONTINUATION] Prosseguindo sessão ${ultimoAlvo.typebot_session_id} para paciente ${paciente.nome} (${phone})`);
-                
-                // Buscar configuracoes da organizacao do paciente
-                const configs = await prisma.configuracao.findMany({
-                  where: { organization_id: paciente.organization_id }
-                });
-                const configMap = {};
-                configs.forEach(c => { configMap[c.chave] = c.valor; });
+              addWebhookLog('TARGET_MATCH', `Alvo da campanha localizado. Status alterado para RESPONDIDO.`, {
+                campanhaId: ultimoAlvo.campanha_id,
+                sessionId: ultimoAlvo.typebot_session_id
+              });
 
-                const typebotUrl = configMap.typebot_url || 'https://typebot-viewer.dmedia.com.br';
-                const evoUrl = configMap.evo_url;
-                const evoInstance = configMap.evo_instance;
-                const evoApikey = configMap.evo_apikey;
+              // Buscar configuracoes da organizacao
+              const configs = await prisma.configuracao.findMany({
+                where: { organization_id: paciente.organization_id }
+              });
+              const configMap = {};
+              configs.forEach(c => { configMap[c.chave] = c.valor; });
+
+              const typebotUrl = configMap.typebot_url || 'https://typebot-viewer.dmedia.com.br';
+              const publicId = configMap.typebot_public_id || 'aca-limpeza-npgmb3s';
+              const evoUrl = configMap.evo_url;
+              const evoInstance = configMap.evo_instance;
+              const evoApikey = configMap.evo_apikey;
+
+              let sessionId = ultimoAlvo.typebot_session_id;
+
+              // SE NÃO TIVER SESSÃO CRIADA, CRIA UMA AGORA MESMO COM AS VARIÁVEIS DO PACIENTE!
+              if (!sessionId) {
+                addWebhookLog('TYPEBOT_AUTO_START', `Gerando nova sessão no Typebot para ${paciente.nome}...`, {
+                  typebotUrl,
+                  publicId
+                });
 
                 try {
-                  const continueRes = await fetch(`${typebotUrl.replace(/\/$/, '')}/api/v1/sessions/${ultimoAlvo.typebot_session_id}/continueChat`, {
+                  const startPayload = {
+                    isOnlyRegistering: true,
+                    prefilledVariables: {
+                      remoteJid: `${cleanIncomingPhone}@s.whatsapp.net`,
+                      pacienteId: paciente.id,
+                      pacienteNome: paciente.nome,
+                      campanhaId: ultimoAlvo.campanha_id,
+                      organizationId: paciente.organization_id
+                    }
+                  };
+
+                  const startRes = await fetch(`${typebotUrl.replace(/\/$/, '')}/api/v1/typebots/${publicId}/startChat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(startPayload)
+                  });
+
+                  const startData = await startRes.json().catch(() => null);
+                  sessionId = startData?.sessionId || startData?.session?.id;
+
+                  if (sessionId) {
+                    await prisma.campanhaAlvo.update({
+                      where: {
+                        campanha_id_paciente_id: {
+                          campanha_id: ultimoAlvo.campanha_id,
+                          paciente_id: ultimoAlvo.paciente_id
+                        }
+                      },
+                      data: { typebot_session_id: sessionId }
+                    });
+                    addWebhookLog('TYPEBOT_AUTO_SUCCESS', `Sessão do Typebot criada com sucesso! ID: ${sessionId}`);
+                  } else {
+                    addWebhookLog('TYPEBOT_AUTO_ERROR', `Falha ao obter sessionId do Typebot`, startData);
+                  }
+                } catch (regErr) {
+                  addWebhookLog('TYPEBOT_AUTO_EXCEPTION', `Exceção ao criar sessão no Typebot: ${regErr.message}`);
+                }
+              }
+
+              // SE POSSUIR OU TIVER GERADO A SESSÃO DO TYPEBOT, PROSSEGUE O FLUXO (continueChat)
+              if (sessionId) {
+                addWebhookLog('TYPEBOT_CONTINUE', `Enviando resposta "${responseText}" para continueChat (Sessão: ${sessionId})`);
+                try {
+                  const continueRes = await fetch(`${typebotUrl.replace(/\/$/, '')}/api/v1/sessions/${sessionId}/continueChat`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
@@ -98,7 +197,9 @@ router.post('/evolution', async (req, res) => {
                   const typebotData = await continueRes.json().catch(() => null);
 
                   if (continueRes.ok && typebotData && Array.isArray(typebotData.messages)) {
-                    console.log(`[TYPEBOT CONTINUATION] Typebot retornou ${typebotData.messages.length} mensagem(ns).`);
+                    addWebhookLog('TYPEBOT_RESPONSE', `Typebot retornou ${typebotData.messages.length} mensagem(ns).`, {
+                      messagesCount: typebotData.messages.length
+                    });
 
                     if (evoUrl && evoInstance && evoApikey) {
                       const baseUrlClean = evoUrl.replace(/\/$/, '');
@@ -106,11 +207,10 @@ router.post('/evolution', async (req, res) => {
                       for (const botMsg of typebotData.messages) {
                         let textContent = '';
 
-                        // Tratar texto da mensagem do Typebot
+                        // Extrair texto da mensagem do Typebot
                         if (typeof botMsg.content === 'string') {
                           textContent = botMsg.content;
                         } else if (botMsg.content?.richText && Array.isArray(botMsg.content.richText)) {
-                          // Extrair texto de blocos richText
                           textContent = botMsg.content.richText.map(block => {
                             if (block.children && Array.isArray(block.children)) {
                               return block.children.map(c => c.text || '').join('');
@@ -120,7 +220,7 @@ router.post('/evolution', async (req, res) => {
                         }
 
                         if (textContent && textContent.trim()) {
-                          console.log(`[EVOLUTION DISPATCH] Enviando texto do Typebot para ${phone}: "${textContent.trim()}"`);
+                          addWebhookLog('EVOLUTION_DISPATCH', `Disparando texto do Typebot para ${cleanIncomingPhone}: "${textContent.trim()}"`);
                           await fetch(`${baseUrlClean}/message/sendText/${evoInstance}`, {
                             method: 'POST',
                             headers: {
@@ -128,31 +228,36 @@ router.post('/evolution', async (req, res) => {
                               'apikey': evoApikey
                             },
                             body: JSON.stringify({
-                              number: phone,
+                              number: cleanIncomingPhone,
                               options: { delay: 1000, presence: "composing" },
                               text: textContent.trim()
                             })
-                          }).catch(err => console.error('[EVOLUTION DISPATCH ERROR]', err));
+                          }).catch(err => {
+                            addWebhookLog('EVOLUTION_DISPATCH_ERROR', `Erro ao disparar mensagem para WhatsApp: ${err.message}`);
+                          });
                         }
                       }
                     }
                   } else {
-                    console.warn(`[TYPEBOT CONTINUATION WARNING] Falha no continueChat:`, typebotData);
+                    addWebhookLog('TYPEBOT_CONTINUE_WARNING', `Resposta inesperada do continueChat`, typebotData);
                   }
                 } catch (tbErr) {
-                  console.error('[TYPEBOT CONTINUATION ERROR]', tbErr);
+                  addWebhookLog('TYPEBOT_CONTINUE_EXCEPTION', `Erro de rede no continueChat: ${tbErr.message}`);
                 }
               }
+            } else {
+              addWebhookLog('WARNING', `Nenhum alvo de campanha recente encontrado para o paciente ${paciente.nome}`);
             }
+          } else {
+            addWebhookLog('WARNING', `Nenhum paciente encontrado no banco para o telefone: ${phone} (limpo: ${cleanIncomingPhone})`);
           }
         }
       }
     }
     
-    // A Evolution API exige que retornemos 200 rápido para ela saber que recebemos
     res.status(200).json({ received: true });
   } catch (error) {
-    console.error('Erro no Webhook Evolution:', error);
+    addWebhookLog('CRITICAL_ERROR', `Exceção fatal no Webhook Evolution: ${error.message}`);
     res.status(500).json({ error: 'Internal Server Error' });
   }
 });

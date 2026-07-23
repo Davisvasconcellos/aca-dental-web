@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Users, CheckCircle, XCircle, MessageCircle } from 'lucide-react';
+import { ArrowLeft, Users, CheckCircle, XCircle, MessageCircle, Terminal, RefreshCw, Trash2, Bot } from 'lucide-react';
 
 const fetchAuth = (url, options = {}) => {
   const token = localStorage.getItem('aca_token');
@@ -21,9 +21,23 @@ export default function CampanhaDetalhes() {
   const [isSending, setIsSending] = useState(false);
   const [sendProgress, setSendProgress] = useState(0);
 
+  // Estados para o Modal de Logs do Webhook
+  const [showLogsModal, setShowLogsModal] = useState(false);
+  const [webhookLogs, setWebhookLogs] = useState([]);
+  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [autoRefreshLogs, setAutoRefreshLogs] = useState(false);
+
   useEffect(() => {
     fetchDetalhes();
   }, [id]);
+
+  useEffect(() => {
+    let interval;
+    if (showLogsModal && autoRefreshLogs) {
+      interval = setInterval(fetchLogs, 2000);
+    }
+    return () => clearInterval(interval);
+  }, [showLogsModal, autoRefreshLogs]);
 
   const fetchDetalhes = async () => {
     try {
@@ -35,6 +49,29 @@ export default function CampanhaDetalhes() {
     } catch (err) {
       console.error(err);
       setLoading(false);
+    }
+  };
+
+  const fetchLogs = async () => {
+    setLoadingLogs(true);
+    try {
+      const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/webhooks/logs`);
+      const data = await res.json();
+      if (data.ok) {
+        setWebhookLogs(data.logs || []);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar logs:", err);
+    }
+    setLoadingLogs(false);
+  };
+
+  const handleClearLogs = async () => {
+    try {
+      await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/webhooks/logs`, { method: 'DELETE' });
+      setWebhookLogs([]);
+    } catch (err) {
+      console.error(err);
     }
   };
 
@@ -95,6 +132,18 @@ export default function CampanhaDetalhes() {
         const firstName = alvo.paciente.nome.split(' ')[0];
         const msg = (campanha.mensagem_template || '').replace(/<%first_name%>/g, firstName);
 
+        // Pré-registrar sessão no Typebot
+        let tbSessionId = null;
+        try {
+          const tbRes = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campanha.id}/pre-registrar-typebot`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ paciente_id: alvoId })
+          });
+          const tbData = await tbRes.json();
+          if (tbData.ok) tbSessionId = tbData.sessionId;
+        } catch (e) {}
+
         try {
           const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-evolution`, {
             method: 'POST',
@@ -113,7 +162,7 @@ export default function CampanhaDetalhes() {
           await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campanha.id}/alvo/${alvoId}`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status_envio: data.ok ? 'ENVIADO' : 'ERRO' })
+            body: JSON.stringify({ status_envio: data.ok ? 'ENVIADO' : 'ERRO', typebot_session_id: tbSessionId })
           });
         } catch (err) {
           console.error(`Erro ao reenviar para ${alvo.paciente.nome}:`, err);
@@ -142,20 +191,31 @@ export default function CampanhaDetalhes() {
 
   return (
     <div id="tab-detalhes" style={{ animation: 'fadeIn 0.3s ease', maxWidth: '1200px', margin: '0 auto', padding: '20px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: '16px', marginBottom: '24px' }}>
-        <button 
-          className="btn btn-ghost" 
-          onClick={() => navigate('/campanhas')}
-          style={{ padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-        >
-          <ArrowLeft size={20} />
-        </button>
-        <div>
-          <h2 style={{ fontSize: '20px', fontWeight: '700', margin: '0 0 4px 0' }}>{campanha.nome}</h2>
-          <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
-            Criada em: {new Date(campanha.data_inicio).toLocaleString('pt-BR')}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+          <button 
+            className="btn btn-ghost" 
+            onClick={() => navigate('/campanhas')}
+            style={{ padding: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            <ArrowLeft size={20} />
+          </button>
+          <div>
+            <h2 style={{ fontSize: '20px', fontWeight: '700', margin: '0 0 4px 0' }}>{campanha.nome}</h2>
+            <div style={{ fontSize: '12px', color: 'var(--muted)' }}>
+              Criada em: {new Date(campanha.data_inicio).toLocaleString('pt-BR')}
+            </div>
           </div>
         </div>
+
+        <button 
+          className="btn btn-secondary"
+          onClick={() => { setShowLogsModal(true); fetchLogs(); }}
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#1e293b', border: '1px solid #334155', color: '#38bdf8' }}
+        >
+          <Terminal size={16} />
+          📜 Logs do Webhook (Tempo Real)
+        </button>
       </div>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
@@ -190,9 +250,6 @@ export default function CampanhaDetalhes() {
         </div>
 
         <div className="cfg-card" style={{ padding: '16px', display: 'flex', alignItems: 'center', gap: '16px', border: '1px solid var(--accent)', position: 'relative', overflow: 'hidden' }}>
-          <div style={{ position: 'absolute', top: '12px', right: '-24px', background: 'var(--accent)', color: '#fff', fontSize: '9px', fontWeight: 'bold', padding: '2px 24px', transform: 'rotate(45deg)', letterSpacing: '1px' }}>
-            EM BREVE
-          </div>
           <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'rgba(79,142,247,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--accent)' }}>
             <MessageCircle size={24} />
           </div>
@@ -256,13 +313,14 @@ export default function CampanhaDetalhes() {
                 <th style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: '12px' }}>PACIENTE</th>
                 <th style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: '12px' }}>TELEFONE</th>
                 <th style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: '12px' }}>STATUS</th>
-                <th style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: '12px' }}>RESPOSTA</th>
+                <th style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: '12px' }}>SESSÃO TYPEBOT</th>
+                <th style={{ padding: '12px 8px', color: 'var(--muted)', fontSize: '12px' }}>RESPOSTA DO CLIENTE</th>
               </tr>
             </thead>
             <tbody>
               {currentData.length === 0 ? (
                 <tr>
-                  <td colSpan="4" style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>Nenhum alvo encontrado neste filtro.</td>
+                  <td colSpan="6" style={{ textAlign: 'center', padding: '30px', color: 'var(--muted)' }}>Nenhum alvo encontrado neste filtro.</td>
                 </tr>
               ) : (
                 currentData.map(a => {
@@ -282,18 +340,39 @@ export default function CampanhaDetalhes() {
                         )}
                       </td>
                       <td style={{ padding: '12px 8px', fontWeight: '500' }}>{a.paciente.nome}</td>
-                    <td style={{ padding: '12px 8px', color: 'var(--muted)' }}>{a.paciente.telefone}</td>
-                    <td style={{ padding: '12px 8px' }}>
-                      {a.status_envio === 'RESPONDIDO' && <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(79,142,247,0.1)', padding: '4px 8px', borderRadius: '4px' }}>RESPONDIDO</span>}
-                      {a.status_envio === 'ENVIADO' && <span style={{ color: 'var(--green)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(34,197,94,0.1)', padding: '4px 8px', borderRadius: '4px' }}>ENVIADO</span>}
-                      {a.status_envio === 'PENDENTE' && <span style={{ color: 'var(--muted)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '4px' }}>PENDENTE</span>}
-                      {a.status_envio === 'ERRO' && <span style={{ color: 'var(--red)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(239,68,68,0.1)', padding: '4px 8px', borderRadius: '4px' }}>ERRO</span>}
-                    </td>
-                    <td style={{ padding: '12px 8px', color: 'var(--text)', fontStyle: 'italic', maxWidth: '300px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {a.resposta_texto || '-'}
-                    </td>
-                  </tr>
-                );
+                      <td style={{ padding: '12px 8px', color: 'var(--muted)' }}>{a.paciente.telefone}</td>
+                      <td style={{ padding: '12px 8px' }}>
+                        {a.status_envio === 'RESPONDIDO' && <span style={{ color: 'var(--accent)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(79,142,247,0.1)', padding: '4px 8px', borderRadius: '4px' }}>RESPONDIDO</span>}
+                        {a.status_envio === 'ENVIADO' && <span style={{ color: 'var(--green)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(34,197,94,0.1)', padding: '4px 8px', borderRadius: '4px' }}>ENVIADO</span>}
+                        {a.status_envio === 'PENDENTE' && <span style={{ color: 'var(--muted)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(255,255,255,0.05)', padding: '4px 8px', borderRadius: '4px' }}>PENDENTE</span>}
+                        {a.status_envio === 'ERRO' && <span style={{ color: 'var(--red)', fontWeight: 'bold', fontSize: '11px', background: 'rgba(239,68,68,0.1)', padding: '4px 8px', borderRadius: '4px' }}>ERRO</span>}
+                      </td>
+                      <td style={{ padding: '12px 8px' }}>
+                        {a.typebot_session_id ? (
+                          <span style={{ fontSize: '11px', fontFamily: 'monospace', color: '#38bdf8', background: 'rgba(56,189,248,0.1)', padding: '2px 6px', borderRadius: '4px', display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                            <Bot size={12} />
+                            {a.typebot_session_id.substring(0, 12)}...
+                          </span>
+                        ) : (
+                          <span style={{ fontSize: '11px', color: 'var(--muted)' }}>-</span>
+                        )}
+                      </td>
+                      <td style={{ padding: '12px 8px' }}>
+                        {a.resposta_texto ? (
+                          <div>
+                            <div style={{ color: 'var(--text)', fontWeight: '500' }}>"{a.resposta_texto}"</div>
+                            {a.data_resposta && (
+                              <div style={{ fontSize: '10px', color: 'var(--muted)', marginTop: '2px' }}>
+                                {new Date(a.data_resposta).toLocaleString('pt-BR')}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <span style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '12px' }}>Aguardando resposta...</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
                 })
               )}
             </tbody>
@@ -311,6 +390,82 @@ export default function CampanhaDetalhes() {
           )}
         </div>
       </div>
+
+      {/* MODAL DE LOGS DO WEBHOOK E TYPEBOT */}
+      {showLogsModal && (
+        <div style={{ position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, background: 'rgba(0,0,0,0.75)', backdropFilter: 'blur(4px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 9999, padding: '20px' }}>
+          <div style={{ background: '#0f172a', border: '1px solid #1e293b', borderRadius: '12px', width: '100%', maxWidth: '900px', maxHeight: '85vh', display: 'flex', flexDirection: 'column', boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.5)' }}>
+            
+            {/* Header do Modal */}
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#38bdf8', fontWeight: 'bold', fontSize: '16px' }}>
+                <Terminal size={20} />
+                📜 Console de Logs do Webhook & Typebot
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '12px', color: '#94a3b8', cursor: 'pointer' }}>
+                  <input 
+                    type="checkbox" 
+                    checked={autoRefreshLogs} 
+                    onChange={e => setAutoRefreshLogs(e.target.checked)} 
+                  />
+                  Auto-Atualizar (2s)
+                </label>
+                <button className="btn btn-ghost" onClick={fetchLogs} disabled={loadingLogs} style={{ padding: '6px', color: '#94a3b8' }} title="Atualizar Agora">
+                  <RefreshCw size={16} className={loadingLogs ? 'spin' : ''} />
+                </button>
+                <button className="btn btn-ghost" onClick={handleClearLogs} style={{ padding: '6px', color: '#ef4444' }} title="Limpar Logs">
+                  <Trash2 size={16} />
+                </button>
+                <button className="btn btn-ghost" onClick={() => setShowLogsModal(false)} style={{ fontSize: '18px', color: '#94a3b8', marginLeft: '10px' }}>✕</button>
+              </div>
+            </div>
+
+            {/* Corpo dos Logs */}
+            <div style={{ padding: '16px', overflowY: 'auto', flex: 1, fontFamily: 'monospace', fontSize: '12px', background: '#020617', color: '#e2e8f0' }}>
+              {webhookLogs.length === 0 ? (
+                <div style={{ textAlign: 'center', padding: '40px 20px', color: '#64748b' }}>
+                  Nenhum log registrado ainda. Envie uma mensagem pelo WhatsApp para ver os eventos chegarem em tempo real!
+                </div>
+              ) : (
+                webhookLogs.map(log => {
+                  let badgeBg = '#334155';
+                  let badgeColor = '#f8fafc';
+                  if (log.type === 'RECEIVE') { badgeBg = '#0284c7'; badgeColor = '#fff'; }
+                  if (log.type === 'PATIENT_MATCH') { badgeBg = '#16a34a'; badgeColor = '#fff'; }
+                  if (log.type === 'TYPEBOT_SESSION' || log.type === 'TYPEBOT_AUTO_START' || log.type === 'TYPEBOT_AUTO_SUCCESS') { badgeBg = '#9333ea'; badgeColor = '#fff'; }
+                  if (log.type === 'TYPEBOT_CONTINUE' || log.type === 'TYPEBOT_RESPONSE') { badgeBg = '#2563eb'; badgeColor = '#fff'; }
+                  if (log.type === 'EVOLUTION_DISPATCH') { badgeBg = '#059669'; badgeColor = '#fff'; }
+                  if (log.type === 'WARNING') { badgeBg = '#d97706'; badgeColor = '#fff'; }
+                  if (log.type === 'ERROR' || log.type === 'CRITICAL_ERROR') { badgeBg = '#dc2626'; badgeColor = '#fff'; }
+
+                  return (
+                    <div key={log.id} style={{ marginBottom: '12px', paddingBottom: '12px', borderBottom: '1px solid #1e293b' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '10px', color: '#64748b' }}>{new Date(log.timestamp).toLocaleTimeString('pt-BR')}</span>
+                        <span style={{ background: badgeBg, color: badgeColor, fontSize: '10px', fontWeight: 'bold', padding: '2px 6px', borderRadius: '4px' }}>{log.type}</span>
+                        <span style={{ color: '#f1f5f9', fontWeight: '500' }}>{log.message}</span>
+                      </div>
+                      {log.details && (
+                        <pre style={{ margin: '4px 0 0 0', padding: '8px', background: '#090d16', borderRadius: '6px', color: '#94a3b8', overflowX: 'auto', fontSize: '11px' }}>
+                          {JSON.stringify(log.details, null, 2)}
+                        </pre>
+                      )}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* Footer do Modal */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #1e293b', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '12px', color: '#64748b' }}>
+              <span>Exibindo os últimos {webhookLogs.length} logs mantidos em memória.</span>
+              <button className="btn btn-secondary" onClick={() => setShowLogsModal(false)} style={{ fontSize: '12px', padding: '4px 12px' }}>Fechar</button>
+            </div>
+
+          </div>
+        </div>
+      )}
     </div>
   );
 }
