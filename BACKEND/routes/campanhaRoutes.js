@@ -110,7 +110,7 @@ router.post('/', async (req, res) => {
 router.put('/:id/alvo/:paciente_id', async (req, res) => {
   try {
     const { id, paciente_id } = req.params;
-    const { status_envio } = req.body;
+    const { status_envio, typebot_session_id } = req.body;
 
     if (!status_envio) return res.status(400).json({ error: 'status_envio é obrigatório' });
 
@@ -123,13 +123,15 @@ router.put('/:id/alvo/:paciente_id', async (req, res) => {
       },
       update: {
         status_envio,
-        data_envio: status_envio === 'ENVIADO' ? new Date() : undefined
+        data_envio: status_envio === 'ENVIADO' ? new Date() : undefined,
+        ...(typebot_session_id !== undefined ? { typebot_session_id } : {})
       },
       create: {
         campanha_id: id,
         paciente_id: paciente_id,
         status_envio,
-        data_envio: status_envio === 'ENVIADO' ? new Date() : undefined
+        data_envio: status_envio === 'ENVIADO' ? new Date() : undefined,
+        typebot_session_id: typebot_session_id || null
       }
     });
 
@@ -137,6 +139,96 @@ router.put('/:id/alvo/:paciente_id', async (req, res) => {
   } catch (error) {
     console.error("Erro ao atualizar alvo da campanha:", error);
     res.status(500).json({ error: 'Erro interno ao atualizar alvo da campanha.' });
+  }
+});
+
+// POST /api/campanhas/:id/pre-registrar-typebot
+// Pré-registra uma sessão no Typebot para um alvo da campanha e salva o sessionId
+router.post('/:id/pre-registrar-typebot', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { paciente_id, typebot_public_id } = req.body;
+    const orgId = req.user.organization_id;
+
+    if (!paciente_id) {
+      return res.status(400).json({ ok: false, error: 'paciente_id é obrigatório' });
+    }
+
+    // Buscar dados do paciente
+    const paciente = await prisma.paciente.findFirst({
+      where: { id: paciente_id, organization_id: orgId }
+    });
+
+    if (!paciente) {
+      return res.status(404).json({ ok: false, error: 'Paciente não encontrado.' });
+    }
+
+    // Buscar configuracoes da organizacao
+    const configs = await prisma.configuracao.findMany({
+      where: { organization_id: orgId }
+    });
+    const configMap = {};
+    configs.forEach(c => { configMap[c.chave] = c.valor; });
+
+    const typebotUrl = configMap.typebot_url || 'https://typebot-viewer.dmedia.com.br';
+    const publicId = typebot_public_id || configMap.typebot_public_id || 'aca-limpeza-npgmb3s';
+
+    let cleanPhone = (paciente.telefone || '').replace(/\D/g, '');
+    if (!cleanPhone.startsWith('55') && cleanPhone.length <= 11) {
+      cleanPhone = '55' + cleanPhone;
+    }
+
+    console.log(`[TYPEBOT PRE-REGISTER] Criando sessão para paciente ${paciente.nome} (${cleanPhone}) na campanha ${id}`);
+
+    const startPayload = {
+      isOnlyRegistering: true,
+      prefilledVariables: {
+        remoteJid: `${cleanPhone}@s.whatsapp.net`,
+        pacienteId: paciente.id,
+        pacienteNome: paciente.nome,
+        campanhaId: id,
+        organizationId: orgId
+      }
+    };
+
+    const startRes = await fetch(`${typebotUrl.replace(/\/$/, '')}/api/v1/typebots/${publicId}/startChat`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(startPayload)
+    });
+
+    const startData = await startRes.json().catch(() => null);
+
+    if (!startRes.ok || !startData || (!startData.sessionId && !startData.session?.id)) {
+      console.error('[TYPEBOT PRE-REGISTER ERROR]', startData);
+      return res.status(400).json({ ok: false, error: 'Falha ao gerar sessão no Typebot', data: startData });
+    }
+
+    const sessionId = startData.sessionId || startData.session?.id;
+
+    // Salvar sessionId no CampanhaAlvo
+    const alvoAtualizado = await prisma.campanhaAlvo.upsert({
+      where: {
+        campanha_id_paciente_id: {
+          campanha_id: id,
+          paciente_id: paciente_id
+        }
+      },
+      update: {
+        typebot_session_id: sessionId
+      },
+      create: {
+        campanha_id: id,
+        paciente_id: paciente_id,
+        status_envio: 'PENDENTE',
+        typebot_session_id: sessionId
+      }
+    });
+
+    res.json({ ok: true, sessionId, alvo: alvoAtualizado });
+  } catch (error) {
+    console.error("Erro ao pré-registrar Typebot:", error);
+    res.status(500).json({ ok: false, error: 'Erro interno ao pré-registrar sessão do Typebot.' });
   }
 });
 

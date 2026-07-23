@@ -66,13 +66,14 @@ model Campanha {
 }
 
 model CampanhaAlvo {
-  campanha_id   String
-  paciente_id   String
-  status_envio  String
-  data_envio    DateTime?
-  resposta_texto String?
-  data_resposta  DateTime?
-  
+  campanha_id        String
+  paciente_id        String
+  status_envio       String
+  data_envio         DateTime?
+  resposta_texto     String?
+  data_resposta      DateTime?
+  typebot_session_id String?
+
   campanha      Campanha   @relation(fields: [campanha_id], references: [id], onDelete: Cascade)
   paciente      Paciente   @relation(fields: [paciente_id], references: [id], onDelete: Cascade)
   

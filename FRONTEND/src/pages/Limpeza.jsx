@@ -271,6 +271,24 @@ export default function Limpeza() {
         const msg = template.replace(/<%first_name%>/g, firstName);
         
         setCurrentStatus(`Enviando para ${firstName}... (${i+1}/${selectedPacientes.length})`);
+
+        // Pré-registrar sessão no Typebot para capturar o sessionId com variáveis preenchidas
+        let tbSessionId = null;
+        if (campaignId) {
+          try {
+            const tbRes = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/pre-registrar-typebot`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ paciente_id: p.id })
+            });
+            const tbData = await tbRes.json();
+            if (tbData.ok) {
+              tbSessionId = tbData.sessionId;
+            }
+          } catch (tbErr) {
+            console.warn(`[TYPEBOT PRE-REGISTER WARNING] Não foi possível pré-registrar sessão para ${p.nome}:`, tbErr);
+          }
+        }
         
         try {
           const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/config/testar-evolution`, {
@@ -293,7 +311,7 @@ export default function Limpeza() {
               await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas/${campaignId}/alvo/${p.id}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status_envio: 'ENVIADO' })
+                body: JSON.stringify({ status_envio: 'ENVIADO', typebot_session_id: tbSessionId })
               });
             }
           } else {

@@ -40,12 +40,11 @@ router.post('/evolution', async (req, res) => {
           });
           
           if (paciente) {
-            // Se achou o paciente, verificamos se ele tem alguma CampanhaAlvo que esteja como 'ENVIADO'
-            // Pegamos a mais recente
+            // Se achou o paciente, verificamos se ele tem alguma CampanhaAlvo que esteja como 'ENVIADO' ou 'EM_ANDAMENTO'
             const ultimoAlvo = await prisma.campanhaAlvo.findFirst({
               where: {
                 paciente_id: paciente.id,
-                status_envio: 'ENVIADO'
+                status_envio: { in: ['ENVIADO', 'EM_ANDAMENTO'] }
               },
               orderBy: {
                 data_envio: 'desc'
@@ -53,7 +52,7 @@ router.post('/evolution', async (req, res) => {
             });
             
             if (ultimoAlvo) {
-              // Atualizamos para RESPONDIDO
+              // Atualizamos para RESPONDIDO no banco de dados do ACA
               await prisma.campanhaAlvo.update({
                 where: {
                   campanha_id_paciente_id: {
@@ -67,6 +66,83 @@ router.post('/evolution', async (req, res) => {
                   data_resposta: new Date()
                 }
               });
+
+              // SE POSSUIR SESSÃO DO TYPEBOT REGISTRADA, PROSSEGUE O FLUXO NO TYPEBOT
+              if (ultimoAlvo.typebot_session_id) {
+                console.log(`[TYPEBOT CONTINUATION] Prosseguindo sessão ${ultimoAlvo.typebot_session_id} para paciente ${paciente.nome} (${phone})`);
+                
+                // Buscar configuracoes da organizacao do paciente
+                const configs = await prisma.configuracao.findMany({
+                  where: { organization_id: paciente.organization_id }
+                });
+                const configMap = {};
+                configs.forEach(c => { configMap[c.chave] = c.valor; });
+
+                const typebotUrl = configMap.typebot_url || 'https://typebot-viewer.dmedia.com.br';
+                const evoUrl = configMap.evo_url;
+                const evoInstance = configMap.evo_instance;
+                const evoApikey = configMap.evo_apikey;
+
+                try {
+                  const continueRes = await fetch(`${typebotUrl.replace(/\/$/, '')}/api/v1/sessions/${ultimoAlvo.typebot_session_id}/continueChat`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                      message: {
+                        type: 'text',
+                        text: responseText
+                      }
+                    })
+                  });
+
+                  const typebotData = await continueRes.json().catch(() => null);
+
+                  if (continueRes.ok && typebotData && Array.isArray(typebotData.messages)) {
+                    console.log(`[TYPEBOT CONTINUATION] Typebot retornou ${typebotData.messages.length} mensagem(ns).`);
+
+                    if (evoUrl && evoInstance && evoApikey) {
+                      const baseUrlClean = evoUrl.replace(/\/$/, '');
+
+                      for (const botMsg of typebotData.messages) {
+                        let textContent = '';
+
+                        // Tratar texto da mensagem do Typebot
+                        if (typeof botMsg.content === 'string') {
+                          textContent = botMsg.content;
+                        } else if (botMsg.content?.richText && Array.isArray(botMsg.content.richText)) {
+                          // Extrair texto de blocos richText
+                          textContent = botMsg.content.richText.map(block => {
+                            if (block.children && Array.isArray(block.children)) {
+                              return block.children.map(c => c.text || '').join('');
+                            }
+                            return '';
+                          }).filter(Boolean).join('\n');
+                        }
+
+                        if (textContent && textContent.trim()) {
+                          console.log(`[EVOLUTION DISPATCH] Enviando texto do Typebot para ${phone}: "${textContent.trim()}"`);
+                          await fetch(`${baseUrlClean}/message/sendText/${evoInstance}`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'apikey': evoApikey
+                            },
+                            body: JSON.stringify({
+                              number: phone,
+                              options: { delay: 1000, presence: "composing" },
+                              text: textContent.trim()
+                            })
+                          }).catch(err => console.error('[EVOLUTION DISPATCH ERROR]', err));
+                        }
+                      }
+                    }
+                  } else {
+                    console.warn(`[TYPEBOT CONTINUATION WARNING] Falha no continueChat:`, typebotData);
+                  }
+                } catch (tbErr) {
+                  console.error('[TYPEBOT CONTINUATION ERROR]', tbErr);
+                }
+              }
             }
           }
         }
