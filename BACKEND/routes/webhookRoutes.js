@@ -147,7 +147,13 @@ router.post('/evolution', async (req, res) => {
                       pacienteId: paciente.id,
                       pacienteNome: paciente.nome,
                       campanhaId: ultimoAlvo.campanha_id,
-                      organizationId: paciente.organization_id
+                      organizationId: paciente.organization_id,
+                      apiKey: configMap.typebot_api_key || '',
+                      tbKey: configMap.typebot_api_key || '',
+                      serverUrl: evoUrl || '',
+                      instanceName: evoInstance || '',
+                      pushName: paciente.nome ? paciente.nome.split(' ')[0] : '',
+                      contactName: paciente.nome || ''
                     }
                   };
 
