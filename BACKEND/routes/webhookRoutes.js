@@ -55,8 +55,10 @@ router.post('/evolution', async (req, res) => {
           let phone = remoteJid.split('@')[0];
           let cleanIncomingPhone = phone.replace(/\D/g, '');
           
-          // O texto da resposta (pode vir de botões, de lista, ou texto normal)
-          let responseText = msg.message?.conversation || 
+          // O texto da resposta (priorizando o texto visível do botão clicado: "SIM" / "NÃO")
+          let responseText = msg.message?.buttonsResponseMessage?.selectedDisplayText ||
+                             msg.message?.templateButtonReplyMessage?.selectedDisplayText ||
+                             msg.message?.conversation || 
                              msg.message?.extendedTextMessage?.text || 
                              msg.message?.buttonsResponseMessage?.selectedButtonId ||
                              msg.message?.templateButtonReplyMessage?.selectedId ||

@@ -143,11 +143,12 @@ router.put('/:id/alvo/:paciente_id', async (req, res) => {
 });
 
 // POST /api/campanhas/:id/pre-registrar-typebot
-// Pré-registra uma sessão no Typebot para um paciente da campanha
+// Pré-registra uma sessão no Typebot com todas as variáveis (paciente, campanha, apiKey, serverUrl, instanceName)
 router.post('/:id/pre-registrar-typebot', async (req, res) => {
   try {
     const { id } = req.params;
-    const { paciente_id } = req.body;
+    const { paciente_id, typebot_public_id } = req.body;
+    const orgId = req.user.organization_id;
 
     if (!paciente_id) {
       return res.status(400).json({ error: 'paciente_id é obrigatório' });
@@ -161,9 +162,9 @@ router.post('/:id/pre-registrar-typebot', async (req, res) => {
       return res.status(404).json({ error: 'Paciente não encontrado' });
     }
 
-    const orgId = req.user?.organization_id || paciente.organization_id;
+    const userOrgId = req.user?.organization_id || paciente.organization_id;
     const configs = await prisma.configuracao.findMany({
-      where: { organization_id: orgId }
+      where: { organization_id: userOrgId }
     });
     const configMap = {};
     configs.forEach(c => { configMap[c.chave] = c.valor; });
