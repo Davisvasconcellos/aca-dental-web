@@ -49,7 +49,7 @@ export default function Limpeza() {
   useEffect(() => {
     const fetchRadar = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/limpeza/radar`).then(res => res.json());
     const fetchCampList = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`).then(res => res.json());
-    const fetchTemplates = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`).then(res => res.json());
+    const fetchTemplates = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/templates`).then(res => res.json());
     
     let fetchCamp = null;
     if (urlCampaignId) {

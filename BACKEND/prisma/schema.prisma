@@ -52,17 +52,19 @@ model Tratamento {
 }
 
 model Campanha {
-  id                String         @id @default(uuid())
-  nome              String
-  mensagem_template String
-  botoes            String?
-  status            String
-  organization_id   String
-  data_inicio       DateTime       @default(now())
-  data_fim          DateTime?
+  id                   String            @id @default(uuid())
+  nome                 String
+  mensagem_template    String
+  botoes               String?
+  status               String
+  mensagem_template_id String?
+  organization_id      String
+  data_inicio          DateTime          @default(now())
+  data_fim             DateTime?
   
-  alvos             CampanhaAlvo[]
-  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  alvos                CampanhaAlvo[]
+  template             MensagemTemplate? @relation(fields: [mensagem_template_id], references: [id], onDelete: SetNull)
+  organization         Organization      @relation(fields: [organization_id], references: [id], onDelete: Cascade)
 }
 
 model CampanhaAlvo {
@@ -92,13 +94,24 @@ model Configuracao {
 }
 
 model MensagemTemplate {
-  id              String       @id @default(uuid())
-  titulo          String
-  texto           String
-  botoes          String?      // Armazena JSON com os botões configurados
-  organization_id String
+  id                String       @id @default(uuid())
+  titulo            String
+  tipo              String       @default("TEXTO") // TEXTO, BOTOES, MIDIA, LISTA, TYPEBOT, LOCALIZACAO, CONTATO
+  texto             String
+  header_texto      String?
+  footer_texto      String?
+  botoes            String?      // JSON com array de botões [{ type, displayText, id, copyCode, url, phoneNumber, keyType, key }]
+  media_url         String?
+  media_tipo        String?      // image, video, document
+  file_name         String?
+  typebot_public_id String?
+  sections          String?      // JSON para listas interativas
+  location_data     String?      // JSON com latitude, longitude, name, address
+  contact_data      String?      // JSON com fullName, phoneNumber, organization
+  organization_id   String
   
-  organization    Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  organization      Organization @relation(fields: [organization_id], references: [id], onDelete: Cascade)
+  campanhas         Campanha[]
 }
 
 model Organization {

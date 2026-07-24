@@ -46,7 +46,7 @@ export default function Todos() {
   useEffect(() => {
     const fetchPacientes = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/pacientes`).then(res => res.json());
     const fetchCampList = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`).then(res => res.json());
-    const fetchTemplates = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`).then(res => res.json());
+    const fetchTemplates = fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/templates`).then(res => res.json());
     
     let fetchCamp = null;
     if (urlCampaignId) {
@@ -143,42 +143,27 @@ export default function Todos() {
     e.preventDefault();
     const selectVal = document.getElementById('m-camp-select')?.value;
     const nameVal = document.getElementById('m-camp-nome')?.value;
-    const msgText = document.getElementById('m-camp-msg')?.value;
-    const saveTemplate = document.getElementById('m-camp-save-template')?.checked;
+    const templateId = document.getElementById('m-camp-template-select')?.value;
 
     if (!nameVal) {
       alert("Informe o nome da nova campanha.");
       return;
     }
     
-    if (!msgText) {
-      alert("A mensagem da campanha não pode ficar em branco.");
+    if (!templateId) {
+      alert("Por favor, selecione um modelo de mensagem (template).");
       return;
     }
 
-    // Save as new template if requested
-    if (saveTemplate) {
-      await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/mensagens`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ titulo: nameVal, texto: msgText })
-      });
-    }
-
-    let botoesToSave = null;
-    const selectEl = document.getElementById('m-camp-template-select');
-    if (selectEl && selectEl.value) {
-      const template = allTemplates.find(x => x.id === selectEl.value);
-      if (template && template.botoes) {
-        botoesToSave = template.botoes;
-      }
-    }
+    const selectedTmpl = allTemplates.find(x => x.id === templateId);
+    const msgText = selectedTmpl ? selectedTmpl.texto : '';
+    const botoesToSave = selectedTmpl ? selectedTmpl.botoes : null;
 
     try {
       const res = await fetchAuth(`${import.meta.env.MODE === "production" ? "https://aca-api.dmedia.com.br" : "http://localhost:3000"}/api/campanhas`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText, botoes: botoesToSave })
+        body: JSON.stringify({ nome: nameVal, mensagem_template: msgText, botoes: botoesToSave, mensagem_template_id: templateId })
       });
       const novaCamp = await res.json();
 
@@ -551,9 +536,15 @@ export default function Todos() {
                 <input id="m-camp-nome" className="cfg-input" type="text" placeholder="Ex: Avisos Gerais..." style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
                 
                 <div style={{ marginTop: '20px', marginBottom: '16px' }}>
-                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>
-                    2. MENSAGEM A SER ENVIADA
-                  </label>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+                    <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--muted)' }}>
+                      2. SELECIONAR MODELO DE MENSAGEM (TEMPLATE) *
+                    </label>
+                    <span style={{ fontSize: '11px', color: 'var(--accent)', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => navigate('/templates')}>
+                      + Gerenciar Templates
+                    </span>
+                  </div>
+
                   <select 
                     id="m-camp-template-select" 
                     className="cfg-input" 
@@ -561,24 +552,21 @@ export default function Todos() {
                     defaultValue=""
                     onChange={(e) => {
                       const t = allTemplates.find(x => x.id === e.target.value);
-                      if(t) {
-                        document.getElementById('m-camp-msg').value = t.texto;
+                      if (t) {
+                        setTemplate(t.texto);
                       }
                     }}
                   >
-                    <option value="" disabled>Selecionar um template existente (Opcional)</option>
-                    {allTemplates.map(t => <option key={t.id} value={t.id}>{t.titulo}</option>)}
+                    <option value="" disabled>Escolha um Modelo de Mensagem...</option>
+                    {allTemplates.map(t => (
+                      <option key={t.id} value={t.id}>
+                        [{t.tipo}] {t.titulo}
+                      </option>
+                    ))}
                   </select>
-                  <textarea 
-                    id="m-camp-msg" 
-                    className="cfg-input" 
-                    rows="4" 
-                    placeholder="Escreva a mensagem aqui..." 
-                    style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)', resize: 'vertical' }}
-                  ></textarea>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px' }}>
-                    <input type="checkbox" id="m-camp-save-template" />
-                    <label htmlFor="m-camp-save-template" style={{ fontSize: '12px', color: 'var(--muted)', cursor: 'pointer', margin: 0 }}>Salvar este texto como novo template</label>
+
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', background: 'rgba(255,255,255,0.02)', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                    💡 As mensagens são personalizadas e disparadas usando as configurações pré-definidas no modelo escolhido.
                   </div>
                 </div>
                 

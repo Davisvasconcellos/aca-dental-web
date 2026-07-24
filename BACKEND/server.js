@@ -15,6 +15,7 @@ const authRoutes = require('./routes/authRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const webhookRoutes = require('./routes/webhookRoutes');
 const typebotRoutes = require('./routes/typebotRoutes');
+const templateRoutes = require('./routes/templateRoutes');
 const { authMiddleware } = require('./middleware/authMiddleware');
 
 // Middlewares
@@ -42,6 +43,7 @@ app.use('/api/admin', adminRoutes);
 app.use('/api/config', authMiddleware, configRoutes);
 app.use('/api/update', authMiddleware, updateRoutes);
 app.use('/api/campanhas', authMiddleware, campanhaRoutes);
+app.use('/api/templates', authMiddleware, templateRoutes);
 app.use('/api/webhooks', webhookRoutes);
 app.use('/api/integracoes/typebot', typebotRoutes);
 

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { BrowserRouter as Router, Routes, Route, NavLink, useLocation, Navigate } from 'react-router-dom';
-import { LayoutDashboard, Stethoscope, BadgeDollarSign, Users, Settings, Menu, Shield, Building2, Link as LinkIcon } from 'lucide-react';
+import { LayoutDashboard, Stethoscope, BadgeDollarSign, Users, Settings, Menu, Shield, Building2, Link as LinkIcon, FileText } from 'lucide-react';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
 import './index.css';
 
@@ -12,6 +12,7 @@ import Configuracoes from './pages/Configuracoes';
 import Todos from './pages/Todos';
 import Campanhas from './pages/Campanhas';
 import CampanhaDetalhes from './pages/CampanhaDetalhes';
+import Templates from './pages/Templates';
 import Login from './pages/Login';
 import Clinicas from './pages/Clinicas';
 import UsuariosAdmin from './pages/UsuariosAdmin';
@@ -39,6 +40,9 @@ function Sidebar({ isOpen }) {
             </NavLink>
             <NavLink to="/todos" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <Users size={18} /> Todos os Pacientes
+            </NavLink>
+            <NavLink to="/templates" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
+              <FileText size={18} /> Modelos de Mensagens
             </NavLink>
             <NavLink to="/campanhas" className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}>
               <BadgeDollarSign size={18} /> Histórico de Campanhas
@@ -124,6 +128,7 @@ function MainApp() {
             <Route path="/limpeza" element={<Limpeza />} />
             <Route path="/orcamentos" element={<Orcamentos />} />
             <Route path="/todos" element={<Todos />} />
+            <Route path="/templates" element={<Templates />} />
             <Route path="/campanhas" element={<Campanhas />} />
             <Route path="/campanhas/:id" element={<CampanhaDetalhes />} />
             <Route path="/configuracoes" element={<Configuracoes />} />
