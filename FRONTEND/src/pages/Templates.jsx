@@ -18,7 +18,7 @@ export default function Templates() {
 
   // Form State
   const [titulo, setTitulo] = useState('');
-  const [tipo, setTipo] = useState('BOTOES'); // TEXTO, BOTOES, MIDIA, LISTA, TYPEBOT
+  const [tipo, setTipo] = useState('TEXTO'); // TEXTO, BOTOES, MIDIA, LISTA, TYPEBOT
   const [texto, setTexto] = useState('Olá <%first_name%>, sentimos sua falta! Chegou a hora de realizar sua limpeza preventiva. Podemos agendar?');
   const [headerTexto, setHeaderTexto] = useState('Mensagem da Clínica ACA Dental');
   const [footerTexto, setFooterTexto] = useState('Selecione uma das opções abaixo:');
@@ -54,7 +54,7 @@ export default function Templates() {
   const handleOpenNew = () => {
     setEditingId(null);
     setTitulo('Novo Modelo de Mensagem');
-    setTipo('BOTOES');
+    setTipo('TEXTO');
     setTexto('Olá <%first_name%>, tudo bem? Estamos com condições especiais este mês. Como podemos ajudar?');
     setHeaderTexto('Clínica Odontológica ACA');
     setFooterTexto('Responda clicando em uma das opções abaixo:');
@@ -233,22 +233,22 @@ export default function Templates() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px' }}>
                 <button 
                   type="button"
-                  className={`btn ${tipo === 'BOTOES' ? 'btn-primary' : 'btn-ghost'}`}
-                  onClick={() => setTipo('BOTOES')}
-                  style={{ fontSize: '12px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}
-                >
-                  <MessageSquare size={18} />
-                  Botões Interativos
-                </button>
-
-                <button 
-                  type="button"
                   className={`btn ${tipo === 'TEXTO' ? 'btn-primary' : 'btn-ghost'}`}
                   onClick={() => setTipo('TEXTO')}
                   style={{ fontSize: '12px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}
                 >
                   <FileText size={18} />
                   Texto Simples
+                </button>
+
+                <button 
+                  type="button"
+                  className={`btn ${tipo === 'BOTOES' ? 'btn-primary' : 'btn-ghost'}`}
+                  onClick={() => setTipo('BOTOES')}
+                  style={{ fontSize: '12px', padding: '10px', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '6px' }}
+                >
+                  <MessageSquare size={18} />
+                  Botões Interativos
                 </button>
 
                 <button 
