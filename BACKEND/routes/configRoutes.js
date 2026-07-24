@@ -99,7 +99,12 @@ router.post('/testar-evolution', async (req, res) => {
       cleanPhone = '55' + cleanPhone;
     }
 
-    // Verifica se existem botões para usar InteractiveMessage
+    // Verifica se existem botões (array ou JSON string) para usar sendButtons
+    let parsedBotoes = botoes;
+    if (typeof botoes === 'string') {
+      try { parsedBotoes = JSON.parse(botoes); } catch (e) { parsedBotoes = null; }
+    }
+
     let apiUrl = `${url.replace(/\/$/, '')}/message/sendText/${instance}`;
     let payload = {
       number: cleanPhone,
@@ -107,19 +112,60 @@ router.post('/testar-evolution', async (req, res) => {
       text: message
     };
 
-    if (botoes && Array.isArray(botoes) && botoes.length > 0) {
+    if (parsedBotoes && Array.isArray(parsedBotoes) && parsedBotoes.length > 0) {
       apiUrl = `${url.replace(/\/$/, '')}/message/sendButtons/${instance}`;
+      
+      const formattedButtons = parsedBotoes.map((b, idx) => {
+        const bType = b.type || 'reply';
+        const labelText = b.displayText || b.title || b.label || `Opção ${idx + 1}`;
+
+        if (bType === 'reply') {
+          return {
+            type: 'reply',
+            displayText: labelText,
+            id: b.id || `btn_${Date.now()}_${idx}`
+          };
+        } else if (bType === 'copy') {
+          return {
+            type: 'copy',
+            displayText: labelText,
+            copyCode: b.copyCode || ''
+          };
+        } else if (bType === 'url') {
+          return {
+            type: 'url',
+            displayText: labelText,
+            url: b.url || ''
+          };
+        } else if (bType === 'call') {
+          return {
+            type: 'call',
+            displayText: labelText,
+            phoneNumber: b.phoneNumber || ''
+          };
+        } else if (bType === 'pix') {
+          return {
+            type: 'pix',
+            currency: 'BRL',
+            name: b.name || labelText || 'PIX',
+            keyType: b.keyType || 'cpf',
+            key: b.key || ''
+          };
+        }
+        return {
+          type: 'reply',
+          displayText: labelText,
+          id: b.id || `btn_${Date.now()}_${idx}`
+        };
+      });
+
       payload = {
         number: cleanPhone,
         options: { delay: 1000, presence: "composing" },
-        title: "Mensagem da Clínica",
+        title: req.body.header || req.body.header_texto || "Mensagem da Clínica",
         description: message,
-        footer: "Selecione uma opção abaixo:",
-        buttons: botoes.map(b => ({
-          type: "reply",
-          displayText: b.title,
-          id: b.id || `btn_${Date.now()}`
-        }))
+        footer: req.body.footer || req.body.footer_texto || "Selecione uma opção abaixo:",
+        buttons: formattedButtons
       };
     }
 

@@ -536,14 +536,9 @@ export default function Todos() {
                 <input id="m-camp-nome" className="cfg-input" type="text" placeholder="Ex: Avisos Gerais..." style={{ width: '100%', padding: '10px', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--bg)', color: 'var(--text)' }} />
                 
                 <div style={{ marginTop: '20px', marginBottom: '16px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
-                    <label style={{ fontSize: '12px', fontWeight: 'bold', color: 'var(--muted)' }}>
-                      2. SELECIONAR MODELO DE MENSAGEM (TEMPLATE) *
-                    </label>
-                    <span style={{ fontSize: '11px', color: 'var(--accent)', cursor: 'pointer', fontWeight: 'bold' }} onClick={() => navigate('/templates')}>
-                      + Gerenciar Templates
-                    </span>
-                  </div>
+                  <label style={{ display: 'block', fontSize: '12px', fontWeight: 'bold', marginBottom: '6px', color: 'var(--muted)' }}>
+                    2. SELECIONAR MODELO DE MENSAGEM (TEMPLATE) *
+                  </label>
 
                   <select 
                     id="m-camp-template-select" 
